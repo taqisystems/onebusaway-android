@@ -31,9 +31,9 @@ fun MoreScreen(navController: NavController) {
         bottomBar = {
             BottomNavBar(selected = 3, onSelect = { idx ->
                 when (idx) {
-                    0 -> navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { inclusive = true } }
-                    1 -> navController.navigate(Routes.PLAN_PLAIN)
-                    2 -> navController.navigate(Routes.SAVED)
+                    0 -> navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { saveState = true }; launchSingleTop = true; restoreState = true }
+                    1 -> navController.navigate(Routes.PLAN_PLAIN) { popUpTo(Routes.HOME) { saveState = true }; launchSingleTop = true; restoreState = true }
+                    2 -> navController.navigate(Routes.SAVED) { popUpTo(Routes.HOME) { saveState = true }; launchSingleTop = true; restoreState = true }
                 }
             })
         },

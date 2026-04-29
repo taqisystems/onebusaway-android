@@ -15,13 +15,16 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,7 +38,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -49,6 +54,7 @@ import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.LatLngBounds
 import com.google.maps.android.compose.*
+import com.taqisystems.bus.android.data.model.ActiveReminder
 import com.taqisystems.bus.android.data.model.ArrivalStatus
 import com.taqisystems.bus.android.data.model.ObaArrival
 import com.taqisystems.bus.android.data.model.ObaStop
@@ -95,13 +101,25 @@ fun HomeMapScreen(
     }
 
     val defaultLatlng = LatLng(6.1254, 102.2381) // Kota Bharu default
+    // Restore the last camera position saved before the user navigated away;
+    // fall back to the Kota Bharu default on first launch.
+    val restoredLatlng = if (uiState.lastCameraLat != 0.0 || uiState.lastCameraLon != 0.0)
+        LatLng(uiState.lastCameraLat, uiState.lastCameraLon) else defaultLatlng
+    val restoredZoom = if (uiState.lastCameraZoom > 0f) uiState.lastCameraZoom else 14f
     val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(defaultLatlng, 14f)
+        position = CameraPosition.fromLatLngZoom(restoredLatlng, restoredZoom)
     }
 
     // Sheet state — persistent BottomSheetScaffold with peek
     val selectedStop = uiState.selectedStop
-    val scaffoldState = rememberBottomSheetScaffoldState()
+    val sheetState = rememberStandardBottomSheetState(
+        initialValue = SheetValue.PartiallyExpanded,
+        // Allow the sheet to be dragged freely in both directions.
+        // BottomSheetScaffold already routes list scroll events to the LazyColumn,
+        // not the sheet drag, so accidental collapse while scrolling is not an issue.
+        confirmValueChange = { true },
+    )
+    val scaffoldState = rememberBottomSheetScaffoldState(bottomSheetState = sheetState)
     val snackbarHostState = remember { SnackbarHostState() }
 
     // Show a snackbar whenever the user switches regions from Settings
@@ -117,12 +135,28 @@ fun HomeMapScreen(
     }
     val scope = rememberCoroutineScope()
     val savedStops by viewModel.savedStops.collectAsState()
+    val activeReminders by viewModel.activeReminders.collectAsState()
 
-    // Collapse the sheet back to handle-only whenever the selected stop is cleared.
-    // When a stop is selected we do NOT expand — a floating mini card appears instead,
-    // keeping the map fully accessible for tapping other stops.
+    // Reminder snackbar with optional Undo
+    LaunchedEffect(uiState.reminderMessage) {
+        val msg = uiState.reminderMessage
+        if (!msg.isNullOrBlank()) {
+            val canUndo = uiState.lastCancelledReminder != null
+            val result = snackbarHostState.showSnackbar(
+                message = msg,
+                actionLabel = if (canUndo) "Undo" else null,
+                duration = SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) viewModel.undoCancelReminder()
+            else viewModel.clearReminderMessage()
+        }
+    }
+
+    // Partial-expand to 1-row peek when a stop is tapped; collapse when cleared.
     LaunchedEffect(selectedStop) {
         if (selectedStop == null) {
+            scaffoldState.bottomSheetState.partialExpand()
+        } else {
             scaffoldState.bottomSheetState.partialExpand()
         }
     }
@@ -172,6 +206,9 @@ fun HomeMapScreen(
             )
             viewModel.markCameracentered()
             viewModel.clearPendingCameraCenter()
+            // Explicitly reload stops at the new region centre so we don't rely on the
+            // camera-idle LaunchedEffect which may fire with the OLD position first.
+            viewModel.loadStopsForLocation(lat, lon)
         }
     }
 
@@ -190,15 +227,16 @@ fun HomeMapScreen(
             null
 
         val cameraUpdate = if (stopLatLng != null) {
-            // Build a bounds that contains both the bus and the stop, then pad it
+            // Build a bounds that contains both the bus and the stop, with generous
+            // padding so the surrounding route is visible and the view isn't too tight
             val bounds = LatLngBounds.Builder()
                 .include(busLatLng)
                 .include(stopLatLng)
                 .build()
-            com.google.android.gms.maps.CameraUpdateFactory.newLatLngBounds(bounds, 120)
+            com.google.android.gms.maps.CameraUpdateFactory.newLatLngBounds(bounds, 280)
         } else {
-            // No stop known — fall back to zooming straight to the bus
-            com.google.android.gms.maps.CameraUpdateFactory.newLatLngZoom(busLatLng, 16f)
+            // No stop known — fall back to a moderate zoom so route context is still visible
+            com.google.android.gms.maps.CameraUpdateFactory.newLatLngZoom(busLatLng, 14f)
         }
         cameraPositionState.animate(cameraUpdate)
     }
@@ -216,10 +254,18 @@ fun HomeMapScreen(
         )
     }
 
-    // The sheet always stays at handle height — the floating StopMiniCard replaces
-    // the auto-expand so the map is never obscured when the user selects a stop.
-    val handleBarHeight = 52.dp
-    val peekHeight      = handleBarHeight
+    // peekHeight breakdown when a stop is selected:
+    //   drag handle  : 16dp  (pill + padding)
+    //   stop header  : 76dp  (stop name headlineMedium + code labelMedium + 12dp×2 vert padding)
+    //   arrivals hdr : 40dp  ("Arrivals" headlineMedium 36dp + 4dp bottom padding)
+    //   divider      :  1dp
+    //   one ArrivalRow: 92dp (Surface 4dp×2 + inner Row 14dp×2 + minHeight 56dp)
+    //   buffer       : 75dp  (font scaling, density rounding, "no active buses" banner)
+    //   total        : 300dp + nav bar inset
+    val navBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val oneRowPeekHeight = navBarInset + 300.dp
+    val handleBarHeight  = 52.dp
+    val peekHeight = if (selectedStop != null) oneRowPeekHeight else handleBarHeight
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0),
@@ -229,9 +275,9 @@ fun HomeMapScreen(
                 selected = 0,
                 onSelect = { idx ->
                     when (idx) {
-                        1 -> navController.navigate(Routes.PLAN_PLAIN)
-                        2 -> navController.navigate(Routes.SAVED)
-                        3 -> navController.navigate(Routes.MORE)
+                        1 -> navController.navigate(Routes.PLAN_PLAIN) { popUpTo(Routes.HOME) { saveState = true }; launchSingleTop = true; restoreState = true }
+                        2 -> navController.navigate(Routes.SAVED) { popUpTo(Routes.HOME) { saveState = true }; launchSingleTop = true; restoreState = true }
+                        3 -> navController.navigate(Routes.MORE) { popUpTo(Routes.HOME) { saveState = true }; launchSingleTop = true; restoreState = true }
                     }
                 },
             )
@@ -241,14 +287,9 @@ fun HomeMapScreen(
             scaffoldState = scaffoldState,
             sheetPeekHeight = peekHeight,
             sheetDragHandle = {
-                // Opaque drag handle — matches the sheet surface so it never looks transparent
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(
-                            color = MaterialTheme.colorScheme.surface,
-                            shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-                        )
                         .padding(top = 8.dp, bottom = 4.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -261,11 +302,9 @@ fun HomeMapScreen(
                     )
                 }
             },
-            sheetShape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
             sheetContainerColor = MaterialTheme.colorScheme.surface,
             sheetContent = {
-                val isExpanded = scaffoldState.bottomSheetState.currentValue == SheetValue.Expanded
-                if (selectedStop != null && isExpanded) {
+                if (selectedStop != null) {
                     StopBottomSheet(
                         stop = selectedStop,
                         arrivals = uiState.arrivals,
@@ -273,6 +312,7 @@ fun HomeMapScreen(
                         lastUpdated = uiState.arrivalsLastUpdated,
                         isSaved = savedStops.any { it.id == selectedStop.id },
                         focusedVehicleId = uiState.focusedVehicle?.vehicleId,
+                        pinnedTripVehicleId = uiState.pinnedTripVehicleId,
                         extraBottomPadding = innerPadding.calculateBottomPadding(),
                         onToggleSave = {
                             val wasSaved = savedStops.any { it.id == selectedStop.id }
@@ -290,6 +330,24 @@ fun HomeMapScreen(
                             )
                         },
                         onDismiss = { viewModel.clearSelectedStop() },
+                        onMinimize = {
+                            scope.launch { scaffoldState.bottomSheetState.partialExpand() }
+                        },
+                        onCenterOnStop = {
+                            scope.launch {
+                                cameraPositionState.animate(
+                                    com.google.android.gms.maps.CameraUpdateFactory.newLatLngZoom(
+                                        com.google.android.gms.maps.model.LatLng(selectedStop.lat, selectedStop.lon),
+                                        cameraPositionState.position.zoom.coerceAtLeast(15f),
+                                    ),
+                                )
+                            }
+                        },
+                        sidecarEnabled = uiState.sidecarEnabled,
+                        activeReminders = activeReminders,
+                        onArrivalLongPress = { arrival ->
+                            if (uiState.sidecarEnabled) viewModel.openReminderSheet(arrival)
+                        },
                         onArrivalFocus = { arrival ->
                             viewModel.focusVehicle(arrival)
                         },
@@ -310,7 +368,6 @@ fun HomeMapScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surface)
                             .padding(horizontal = 20.dp, vertical = 24.dp),
                         contentAlignment = Alignment.CenterStart,
                     ) {
@@ -323,13 +380,18 @@ fun HomeMapScreen(
                 }
             },
         ) {
-            Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            // Track the content box height so we can offset the FAB above the live sheet position
+            var contentHeightPx by remember { mutableIntStateOf(0) }
+            Box(modifier = Modifier.fillMaxSize().padding(innerPadding).onSizeChanged { contentHeightPx = it.height }) {
 
                 // ── Map ──────────────────────────────────────────────────────────────
         LaunchedEffect(cameraPositionState.isMoving) {
             if (!cameraPositionState.isMoving) {
-                val center = cameraPositionState.position.target
+                val pos = cameraPositionState.position
+                val center = pos.target
                 viewModel.loadStopsForLocation(center.latitude, center.longitude)
+                // Persist so the position is restored if the user navigates to another tab
+                viewModel.saveCameraPosition(center.latitude, center.longitude, pos.zoom)
             }
         }
 
@@ -338,7 +400,10 @@ fun HomeMapScreen(
             cameraPositionState = cameraPositionState,
             properties = MapProperties(isMyLocationEnabled = uiState.locationPermissionGranted),
             uiSettings = MapUiSettings(myLocationButtonEnabled = false, zoomControlsEnabled = false),
-            onMapClick = { scope.launch { scaffoldState.bottomSheetState.partialExpand() } },
+            onMapClick = {
+                viewModel.clearFocusedVehicle()
+                scope.launch { scaffoldState.bottomSheetState.partialExpand() }
+            },
         ) {
             val mapContext = LocalContext.current
             val brandRed  = Primary.toArgb()
@@ -379,11 +444,16 @@ fun HomeMapScreen(
                         ArrivalStatus.EARLY     -> VehicleMarkerFactory.COLOR_EARLY
                         else                    -> VehicleMarkerFactory.COLOR_SCHEDULED
                     }
+                    val isFocused = uiState.focusedVehicle?.let { fv ->
+                        (fv.vehicleId != null && fv.vehicleId == arrival.vehicleId) ||
+                            fv.tripId == arrival.tripId
+                    } ?: false
                     val markerResult = remember(
                         arrival.status,
                         arrival.vehicleOrientation,
                         arrival.vehicleLastUpdateTime,
                         arrival.predicted,
+                        isFocused,
                     ) {
                         VehicleMarkerFactory.get(
                             context        = mapContext,
@@ -392,17 +462,20 @@ fun HomeMapScreen(
                             routeShortName = arrival.routeShortName,
                             lastUpdateMs   = arrival.vehicleLastUpdateTime,
                             isPredicted    = arrival.predicted,
+                            showLabel      = isFocused,
                         )
                     }
                     Marker(
                         state  = MarkerState(LatLng(vLat, vLon)),
-                        title  = "${arrival.routeShortName} — ${arrival.tripHeadsign}",
                         icon   = markerResult.descriptor,
                         anchor = Offset(0.5f, markerResult.anchorV),
                         onClick = {
                             viewModel.focusVehicle(arrival)
-                            scope.launch { scaffoldState.bottomSheetState.expand() }
-                            false // allow default title to show
+                            // Only expand the sheet if a trip isn't already selected/visible
+                            if (scaffoldState.bottomSheetState.currentValue != SheetValue.Expanded) {
+                                scope.launch { scaffoldState.bottomSheetState.expand() }
+                            }
+                            true // label is drawn on the marker bitmap; suppress the floating info window
                         },
                     )
                 }
@@ -469,6 +542,7 @@ fun HomeMapScreen(
                                 routeShortName = arrival.routeShortName,
                                 lastUpdateMs   = arrival.vehicleLastUpdateTime,
                                 isPredicted    = arrival.predicted,
+                                showLabel      = false,
                             )
                         }
                         Marker(
@@ -498,6 +572,15 @@ fun HomeMapScreen(
         }
 
         // ── My Location FAB — always visible, overlaid on map ─────────────────
+        // FAB tracks the sheet's live drag offset so it's never covered.
+        val fabDensity = LocalDensity.current
+        val sheetOffsetPx by remember { derivedStateOf {
+            try { scaffoldState.bottomSheetState.requireOffset() }
+            catch (_: IllegalStateException) { contentHeightPx.toFloat() }
+        }}
+        val fabBottomPadding = with(fabDensity) {
+            (contentHeightPx - sheetOffsetPx).toDp().coerceAtLeast(handleBarHeight)
+        } + 16.dp
         val fabContext = LocalContext.current
         SmallFloatingActionButton(
             onClick = {
@@ -524,7 +607,7 @@ fun HomeMapScreen(
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = peekHeight + 16.dp),
+                .padding(end = 16.dp, bottom = fabBottomPadding),
             containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
             elevation = FloatingActionButtonDefaults.elevation(2.dp),
             shape = RoundedCornerShape(10.dp),
@@ -543,23 +626,6 @@ fun HomeMapScreen(
                     modifier = Modifier.size(18.dp),
                 )
             }
-        }
-
-        // ── Stop mini card — floating above the sheet handle ─────────────────
-        // Visible whenever a stop is selected but the sheet is not fully expanded.
-        // Keeps the map accessible so the user can tap other stops.
-        val isSheetExpanded = scaffoldState.bottomSheetState.currentValue == SheetValue.Expanded
-        if (selectedStop != null && !isSheetExpanded) {
-            StopMiniCard(
-                stop = selectedStop,
-                arrivals = uiState.arrivals,
-                loading = uiState.arrivalsLoading,
-                onExpand = { scope.launch { scaffoldState.bottomSheetState.expand() } },
-                onDismiss = { viewModel.clearSelectedStop() },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(start = 12.dp, end = 60.dp, bottom = peekHeight + 8.dp),
-            )
         }
 
         // ── "Where to?" search bar (original design: inline, not a sheet) ────
@@ -837,6 +903,112 @@ fun HomeMapScreen(
         }
     }
     }
+
+    // ── Reminder bottom sheet (long-press on an arrival row) ─────────────────
+    if (uiState.reminderSheetArrival != null && uiState.sidecarEnabled) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val arrival = uiState.reminderSheetArrival!!
+        val hasReminder = activeReminders.any { it.tripId == arrival.tripId }
+        val arrivalEpochMs = if (arrival.predicted) arrival.predictedArrivalTime else arrival.scheduledArrivalTime
+        val timeFmt = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
+
+        ModalBottomSheet(
+            onDismissRequest = { viewModel.closeReminderSheet() },
+            sheetState = sheetState,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    if (hasReminder) "Reminder set" else "Set a reminder",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    "${arrival.routeShortName} \u2192 ${arrival.tripHeadsign.ifBlank { arrival.routeLongName }}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
+
+                if (hasReminder) {
+                    val existingReminder = activeReminders.find { it.tripId == arrival.tripId }
+                    if (existingReminder != null) {
+                        val notifyAtMs = arrivalEpochMs - existingReminder.minutesBefore * 60_000L
+                        Text(
+                            "You'll be notified at ${timeFmt.format(java.util.Date(notifyAtMs))} " +
+                            "(${existingReminder.minutesBefore} min before)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    OutlinedButton(
+                        onClick = { viewModel.cancelReminder(arrival) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error,
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                    ) {
+                        Icon(Icons.Default.NotificationsOff, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Cancel reminder")
+                    }
+                } else {
+                    val minutesOptions = listOf(5, 10, 15)
+                    val arrivalMinutes = arrival.minutesUntilArrival
+                    val allDisabled = minutesOptions.all { arrivalMinutes <= it }
+
+                    if (allDisabled) {
+                        Text(
+                            "The bus arrives too soon to set a reminder.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    } else {
+                        Text(
+                            "Notify me before arrival:",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            minutesOptions.forEach { mins ->
+                                val enabled = arrivalMinutes > mins
+                                val notifyAtMs2 = arrivalEpochMs - mins * 60_000L
+                                val notifyAtLabel = timeFmt.format(java.util.Date(notifyAtMs2))
+                                FilterChip(
+                                    selected = false,
+                                    enabled = enabled,
+                                    onClick = { viewModel.setReminder(arrival, mins) },
+                                    label = {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text("$mins min")
+                                            Text(
+                                                "at $notifyAtLabel",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = if (enabled)
+                                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                                else
+                                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                                            )
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    if (uiState.reminderLoading) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ── Mini card — shown when sheet is at peek height (partially expanded) ───────
@@ -959,17 +1131,22 @@ fun StopBottomSheet(
     lastUpdated: Long? = null,
     isSaved: Boolean = false,
     focusedVehicleId: String? = null,
+    pinnedTripVehicleId: String? = null,
     extraBottomPadding: Dp = 0.dp,
+    sidecarEnabled: Boolean = false,
+    activeReminders: List<ActiveReminder> = emptyList(),
     onToggleSave: () -> Unit = {},
     onViewDetails: () -> Unit,
     onDismiss: () -> Unit,
+    onMinimize: () -> Unit = {},
+    onCenterOnStop: () -> Unit = {},
     onArrivalFocus: (ObaArrival) -> Unit,
     onArrivalDetails: (ObaArrival) -> Unit,
+    onArrivalLongPress: (ObaArrival) -> Unit = {},
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface)
             .navigationBarsPadding()
             .padding(bottom = extraBottomPadding),
     ) {
@@ -994,6 +1171,14 @@ fun StopBottomSheet(
                     )
                 }
             }
+            // Centre map on this stop
+            IconButton(onClick = onCenterOnStop) {
+                Icon(
+                    Icons.Default.MyLocation,
+                    contentDescription = "Centre map on stop",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             // Bookmark / save toggle
             IconButton(onClick = onToggleSave) {
                 Icon(
@@ -1003,10 +1188,11 @@ fun StopBottomSheet(
                            else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            IconButton(onClick = onDismiss) {
+            // Minimize chevron — collapses sheet to peek while keeping the stop selected
+            IconButton(onClick = onMinimize) {
                 Icon(
-                    Icons.Default.Close,
-                    contentDescription = "Close",
+                    Icons.Default.KeyboardArrowDown,
+                    contentDescription = "Minimize",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -1140,20 +1326,61 @@ fun StopBottomSheet(
                 }
             }
 
+            // Sort: pinned trip always first, upcoming arrivals next, departed trips last.
+            val sortedArrivals = arrivals.sortedWith(
+                compareBy(
+                    // pinned trip stays at top even after map tap clears the camera focus
+                    { if (pinnedTripVehicleId != null && it.vehicleId == pinnedTripVehicleId) 0 else 1 },
+                    // departed (< 0) sink to bottom
+                    { if (it.minutesUntilArrival < 0) 1 else 0 },
+                    // within each group, sort by time ascending
+                    { it.minutesUntilArrival },
+                ),
+            )
+
+            // Reset to 3 whenever the user switches to a different stop
+            var visibleCount by remember(stop.id) { mutableIntStateOf(3) }
+            val allVisible = visibleCount >= sortedArrivals.size
+            val remaining  = (sortedArrivals.size - visibleCount).coerceAtLeast(0)
+            val listState = rememberLazyListState()
+
+            // Scroll to top when a trip is newly pinned (pinned trip is at index 0)
+            LaunchedEffect(pinnedTripVehicleId) {
+                if (pinnedTripVehicleId != null) {
+                    visibleCount = 3
+                    listState.animateScrollToItem(0)
+                }
+            }
+
+            // Scroll to reveal the first newly loaded item
+            LaunchedEffect(visibleCount) {
+                if (visibleCount > 3) {
+                    listState.animateScrollToItem((visibleCount - 3).coerceAtLeast(0))
+                }
+            }
+
             Box {
-                LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
-                    items(arrivals.take(6)) { arrival ->
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.heightIn(max = 280.dp),
+                ) {
+                    items(sortedArrivals.take(visibleCount), key = { it.tripId }) { arrival ->
+                        val hasReminder = activeReminders.any { it.tripId == arrival.tripId }
                         ArrivalRow(
                             arrival = arrival,
                             isSelected = arrival.vehicleId != null
                                 && arrival.vehicleId == focusedVehicleId,
+                            hasReminder = hasReminder,
+                            sidecarEnabled = sidecarEnabled,
                             onClick = { onArrivalFocus(arrival) },
+                            onLongClick = { onArrivalLongPress(arrival) },
                             onViewDetails = { onArrivalDetails(arrival) },
+                            modifier = Modifier.animateItem(),
                         )
                     }
                 }
-                // Bottom-fade gradient overlaid on the list — hints more rows below the peek line
-                if (arrivals.size > 1) {
+                // Bottom-fade gradient — only shown while there are hidden rows
+                if (!allVisible) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -1170,34 +1397,63 @@ fun StopBottomSheet(
                     )
                 }
             }
-        }
 
-        // ── Full schedule link — placed after arrivals so rows are visible at peek ─
-        HorizontalDivider(
-            color = MaterialTheme.colorScheme.outlineVariant,
-            modifier = Modifier.padding(horizontal = 16.dp),
-        )
-        OutlinedButton(
-            onClick = onViewDetails,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            colors = ButtonDefaults.outlinedButtonColors(
-                contentColor = MaterialTheme.colorScheme.onSurface,
-            ),
-        ) {
-            Icon(
-                Icons.Default.CalendarMonth,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
+            // ── Show more / stop-info row ──────────────────────────────────
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
             )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "View Full Schedule",
-                style = MaterialTheme.typography.labelLarge,
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (!allVisible) {
+                    TextButton(
+                        onClick = { visibleCount = (visibleCount + 3).coerceAtMost(sortedArrivals.size) },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "Show ${minOf(remaining, 3)} more",
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                } else {
+                    // All arrivals shown — subtle "all caught up" label
+                    Text(
+                        "All ${sortedArrivals.size} arrivals shown",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                // Compact link to the full stop details screen
+                TextButton(
+                    onClick = onViewDetails,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    Text(
+                        "Stop info",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.width(2.dp))
+                    Icon(
+                        Icons.Default.OpenInNew,
+                        contentDescription = "Open stop details",
+                        modifier = Modifier.size(13.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
 
         Spacer(Modifier.height(8.dp))
@@ -1208,8 +1464,12 @@ fun StopBottomSheet(
 fun ArrivalRow(
     arrival: ObaArrival,
     isSelected: Boolean = false,
+    hasReminder: Boolean = false,
+    sidecarEnabled: Boolean = false,
     onClick: () -> Unit,
+    onLongClick: () -> Unit = {},
     onViewDetails: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val statusColor = when (arrival.status) {
         ArrivalStatus.ON_TIME   -> StatusOnTime
@@ -1247,6 +1507,7 @@ fun ArrivalRow(
         arrival.status == ArrivalStatus.ON_TIME   -> "On Time"
         arrival.status == ArrivalStatus.DELAYED   -> "Delayed"
         arrival.status == ArrivalStatus.EARLY     -> "Early"
+        arrival.status == ArrivalStatus.SCHEDULED -> "Scheduled"
         else -> null
     }
 
@@ -1254,10 +1515,13 @@ fun ArrivalRow(
     val selectionColor = if (missed) MaterialTheme.colorScheme.onSurfaceVariant else statusColor
 
     Surface(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clickable(onClick = onClick),
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = if (sidecarEnabled) onLongClick else null,
+            ),
         shape = RoundedCornerShape(16.dp),
         color = if (isSelected)
             selectionColor.copy(alpha = 0.10f)
@@ -1284,6 +1548,9 @@ fun ArrivalRow(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 // Row 1: transit chip + destination
+                // If routeShortName is a long descriptive name rather than a short code,
+                // show only the bus icon in the chip and promote the name to the main label.
+                val isLongRouteName = arrival.routeShortName.length > 10
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1292,6 +1559,7 @@ fun ArrivalRow(
                         shape = RoundedCornerShape(50),
                         color = MaterialTheme.colorScheme.primaryContainer,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+                        modifier = if (isLongRouteName) Modifier else Modifier.widthIn(max = 120.dp),
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -1304,27 +1572,41 @@ fun ArrivalRow(
                                 modifier = Modifier.size(14.dp),
                                 tint = MaterialTheme.colorScheme.onPrimaryContainer,
                             )
-                            Text(
-                                arrival.routeShortName.take(6),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            )
+                            if (!isLongRouteName) {
+                                Text(
+                                    arrival.routeShortName,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
+                    // For long route names, use the routeShortName itself as the primary label;
+                    // for short codes, use the headsign / long name as usual.
+                    val primaryLabel = if (isLongRouteName)
+                        arrival.routeShortName
+                    else
+                        arrival.tripHeadsign.ifBlank { arrival.routeLongName }
                     Text(
-                        arrival.tripHeadsign.ifBlank { arrival.routeLongName },
+                        primaryLabel,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
                 }
                 // Row 2: via / long name (optional)
-                val via = if (arrival.tripHeadsign.isNotBlank() && arrival.routeLongName.isNotBlank())
-                    arrival.routeLongName else null
+                // For long-name routes, show headsign as the secondary line if it adds info.
+                val via = if (isLongRouteName) {
+                    arrival.tripHeadsign.ifBlank { null }
+                } else if (arrival.tripHeadsign.isNotBlank() && arrival.routeLongName.isNotBlank()) {
+                    arrival.routeLongName
+                } else null
                 if (via != null) {
                     Text(
                         via,
@@ -1342,6 +1624,26 @@ fun ArrivalRow(
                         fontWeight = FontWeight.SemiBold,
                         color = statusColor,
                     )
+                }
+                // Row 4: reminder indicator
+                if (hasReminder) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.NotificationsActive,
+                            contentDescription = "Reminder set",
+                            modifier = Modifier.size(12.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            "Reminder set",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
                 }
             }
 

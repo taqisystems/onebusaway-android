@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.taqisystems.bus.android.ServiceLocator
+import com.taqisystems.bus.android.data.model.ActiveReminder
 import com.taqisystems.bus.android.data.model.ArrivalStatus
 import com.taqisystems.bus.android.data.model.ObaArrival
 import com.taqisystems.bus.android.data.model.ObaRegion
@@ -79,17 +80,36 @@ data class HomeUiState(
     val routeHighlightVehicles: List<ObaArrival> = emptyList(),
     // The arrival whose live bus was last tapped in the bottom sheet
     val focusedVehicle: ObaArrival? = null,
+    // vehicleId of the trip pinned to top of the arrivals list — survives map taps,
+    // cleared only when a new stop is opened
+    val pinnedTripVehicleId: String? = null,
     // One-shot message shown when the user switches regions in Settings
     val regionSwitchMessage: String? = null,
     // Location fetch state
     val isLocatingUser: Boolean = false,
     val locationError: String? = null,
+    // Last known map camera position — persisted across bottom-tab navigation
+    val lastCameraLat: Double = 0.0,
+    val lastCameraLon: Double = 0.0,
+    val lastCameraZoom: Float = 0f,
+    // ── Reminder feature ──────────────────────────────────────────────────────
+    /** True when the current region has a sidecar URL configured. */
+    val sidecarEnabled: Boolean = false,
+    /** Which arrival the reminder bottom sheet is currently open for. */
+    val reminderSheetArrival: ObaArrival? = null,
+    /** Feedback message to show in a snackbar. */
+    val reminderMessage: String? = null,
+    /** True while a reminder HTTP call is in flight. */
+    val reminderLoading: Boolean = false,
+    /** Holds the last cancelled reminder so Undo can restore it. */
+    val lastCancelledReminder: ActiveReminder? = null,
 )
 
 class HomeViewModel(app: Application) : AndroidViewModel(app) {
     private val obaRepo = ServiceLocator.obaRepository
     private val regionsRepo = ServiceLocator.regionsRepository
     private val geocodingRepo = ServiceLocator.geocodingRepository
+    private val reminderRepo = ServiceLocator.reminderRepository
     private val fusedLocation = LocationServices.getFusedLocationProviderClient(app)
     private var searchJob: Job? = null
 
@@ -97,6 +117,10 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
     val savedStops: StateFlow<List<SavedStop>> = ServiceLocator.preferences.savedStops
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Active reminders — used to render the bell as filled/active in ArrivalRow. */
+    val activeReminders: StateFlow<List<ActiveReminder>> = ServiceLocator.preferences.activeReminders
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private var arrivalsPollJob: Job? = null
@@ -109,12 +133,26 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     var forceCenterOnLocation: Boolean = false
         private set
 
+    /** Persist camera position so it can be restored when returning to HomeMapScreen. */
+    fun saveCameraPosition(lat: Double, lon: Double, zoom: Float) {
+        _uiState.value = _uiState.value.copy(
+            lastCameraLat = lat,
+            lastCameraLon = lon,
+            lastCameraZoom = zoom,
+        )
+    }
+
     fun markCameracentered() {
         hasCenteredOnLocation = true
         forceCenterOnLocation = false
     }
 
     init {
+        // Mirror sidecarEnabled so the bell shows only when the region supports reminders
+        ServiceLocator.preferences.sidecarBaseUrl
+            .onEach { url -> _uiState.value = _uiState.value.copy(sidecarEnabled = !url.isNullOrBlank()) }
+            .launchIn(viewModelScope)
+
         viewModelScope.launch {
             val prefs = ServiceLocator.preferences
             val autoDetect = prefs.autoDetectRegion.first()
@@ -164,12 +202,24 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                     val lon        = arr[3] as? Double
                     if (!autoDetect && lat != null && lon != null) {
                         hasCenteredOnLocation = false
+                        // Clear stale stops/arrivals immediately so the map doesn't briefly
+                        // show data from the old region while the camera flies to the new one.
+                        _uiState.value = _uiState.value.copy(
+                            stops = emptyList(),
+                            selectedStop = null,
+                            arrivals = emptyList(),
+                            routeHighlight = null,
+                            routeHighlightShape = emptyList(),
+                            routeHighlightVehicles = emptyList(),
+                            focusedVehicle = null,
+                        )
                         // Refresh activeRegion so search/geocoding uses the new region's bbox
                         val regions = runCatching { regionsRepo.fetchRegions() }.getOrElse { emptyList() }
                         val region = regions.find { it.id.toString() == regionId }
                         _uiState.value = _uiState.value.copy(
                             pendingCameraCenter = Pair(lat, lon),
                             activeRegion = region ?: _uiState.value.activeRegion,
+                            regionSwitchMessage = region?.regionName?.let { "You're now in $it" },
                         )
                     }
                 }
@@ -260,6 +310,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             arrivalsLastUpdated = null,
             routeShape = emptyList(),
             selectedArrivalStatus = null,
+            pinnedTripVehicleId = null,
         )
         if (stop != null) {
             loadArrivals(stop.id, silent = false)
@@ -299,8 +350,15 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
      * so the map can animate the camera to it.
      */
     fun focusVehicle(arrival: ObaArrival) {
-        _uiState.value = _uiState.value.copy(focusedVehicle = arrival)
+        _uiState.value = _uiState.value.copy(
+            focusedVehicle = arrival,
+            pinnedTripVehicleId = arrival.vehicleId,
+        )
         loadShapeForVehicle(arrival.tripId, arrival.status)
+    }
+
+    fun clearFocusedVehicle() {
+        _uiState.value = _uiState.value.copy(focusedVehicle = null)
     }
 
     /** Called when a bus vehicle marker is tapped on the map. */
@@ -440,6 +498,95 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     // legacy – kept for compat with old search sheet code
     fun searchDestination(query: String) = onSearchQueryChanged(query)
     fun clearDestinationSearch() = setSearchActive(false)
+
+    // ── Reminder feature ──────────────────────────────────────────────────────
+
+    fun openReminderSheet(arrival: ObaArrival) {
+        _uiState.value = _uiState.value.copy(reminderSheetArrival = arrival)
+    }
+
+    fun closeReminderSheet() {
+        _uiState.value = _uiState.value.copy(reminderSheetArrival = null)
+    }
+
+    fun setReminder(arrival: ObaArrival, minutesBefore: Int) {
+        viewModelScope.launch {
+            val prefs = ServiceLocator.preferences
+            val sidecarUrl = prefs.sidecarBaseUrl.first()
+            val regionId   = prefs.regionId.first()
+            val stop       = _uiState.value.selectedStop
+
+            if (sidecarUrl.isNullOrBlank() || regionId == null || stop == null) {
+                _uiState.value = _uiState.value.copy(
+                    reminderSheetArrival = null,
+                    reminderMessage = "Reminder service is not available for this region.",
+                )
+                return@launch
+            }
+
+            _uiState.value = _uiState.value.copy(
+                reminderLoading = true,
+                reminderSheetArrival = null,
+            )
+
+            val result = reminderRepo.registerReminder(
+                sidecarBaseUrl = sidecarUrl,
+                regionId       = regionId,
+                stopId         = stop.id,
+                stopName       = stop.name,
+                arrival        = arrival,
+                secondsBefore  = minutesBefore * 60,
+            )
+
+            result.onSuccess { deleteUrl ->
+                val reminder = ActiveReminder(
+                    tripId         = arrival.tripId,
+                    deleteUrl      = deleteUrl,
+                    minutesBefore  = minutesBefore,
+                    sidecarBaseUrl = sidecarUrl,
+                )
+                prefs.addActiveReminder(reminder)
+                _uiState.value = _uiState.value.copy(
+                    reminderLoading = false,
+                    reminderMessage = "You'll be notified $minutesBefore min before the bus arrives.",
+                )
+            }.onFailure { e ->
+                _uiState.value = _uiState.value.copy(
+                    reminderLoading = false,
+                    reminderMessage = "Couldn't set reminder: ${e.message}",
+                )
+            }
+        }
+    }
+
+    fun cancelReminder(arrival: ObaArrival) {
+        viewModelScope.launch {
+            val reminder = activeReminders.value.find { it.tripId == arrival.tripId }
+                ?: return@launch
+            ServiceLocator.preferences.removeActiveReminder(arrival.tripId)
+            _uiState.value = _uiState.value.copy(
+                reminderSheetArrival = null,
+                reminderMessage = "Reminder cancelled.",
+                lastCancelledReminder = reminder,
+            )
+            reminderRepo.cancelReminder(reminder)
+        }
+    }
+
+    fun undoCancelReminder() {
+        val reminder = _uiState.value.lastCancelledReminder ?: return
+        viewModelScope.launch {
+            ServiceLocator.preferences.addActiveReminder(reminder)
+            _uiState.value = _uiState.value.copy(
+                lastCancelledReminder = null,
+                reminderMessage = null,
+            )
+        }
+    }
+
+    fun clearReminderMessage() {
+        _uiState.value = _uiState.value.copy(reminderMessage = null, lastCancelledReminder = null)
+    }
 
     override fun onCleared() {
         arrivalsPollJob?.cancel()

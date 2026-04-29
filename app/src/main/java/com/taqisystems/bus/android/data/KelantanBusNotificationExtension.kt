@@ -1,7 +1,14 @@
 package com.taqisystems.bus.android.data
 
+import android.app.PendingIntent
+import android.content.Intent
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import com.onesignal.notifications.INotificationReceivedEvent
 import com.onesignal.notifications.INotificationServiceExtension
+import com.taqisystems.bus.android.KelantanBusApplication
+import com.taqisystems.bus.android.MainActivity
+import com.taqisystems.bus.android.R
 import com.taqisystems.bus.android.ServiceLocator
 import com.taqisystems.bus.android.data.model.InboxNotification
 import kotlinx.coroutines.runBlocking
@@ -54,6 +61,35 @@ class KelantanBusNotificationExtension : INotificationServiceExtension {
                 }
             }
         }
-        // Do NOT call event.preventDefault() — we want the notification to still appear in the tray.
+
+        // Suppress OneSignal's default display so we can re-post on our custom channel
+        // (kelantanbus_reminders), which has the alert.wav sound attached.
+        event.preventDefault()
+
+        val context = ServiceLocator.application
+        val notifId = System.currentTimeMillis().toInt()
+
+        val tapIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            deepLink?.let { putExtra("deepLink", it) }
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context, notifId, tapIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        val notification = NotificationCompat.Builder(context, KelantanBusApplication.CHANNEL_ID_REMINDERS)
+            .setSmallIcon(R.drawable.ic_stat_onesignal_default)
+            .setContentTitle(entry.title)
+            .setContentText(entry.body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(entry.body))
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+
+        runCatching {
+            NotificationManagerCompat.from(context).notify(notifId, notification)
+        }
     }
 }

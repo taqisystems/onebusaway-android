@@ -73,10 +73,17 @@ object VehicleMarkerFactory {
         routeShortName: String,
         lastUpdateMs: Long?,
         isPredicted: Boolean,
+        showLabel: Boolean = true,
     ): VehicleMarkerResult {
         val halfWind = orientationToHalfWind(orientationDeg)
         val circle   = getColoredCircle(context, statusColor, halfWind)
-        val label    = formatUpdateLabel(lastUpdateMs, isPredicted)
+        if (!showLabel) {
+            return VehicleMarkerResult(
+                descriptor = BitmapDescriptorFactory.fromBitmap(circle),
+                anchorV    = 0.5f,
+            )
+        }
+        val label = formatUpdateLabel(lastUpdateMs, isPredicted)
         return composeMarker(context, circle, statusColor, routeShortName, label)
     }
 

@@ -18,7 +18,7 @@ android {
         applicationId = "com.taqisystems.bus.android"
         minSdk = 24
         targetSdk = 36
-        versionCode = 161
+        versionCode = 168
         versionName = "3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

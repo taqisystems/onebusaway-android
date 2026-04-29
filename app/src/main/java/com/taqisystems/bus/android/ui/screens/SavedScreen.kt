@@ -61,9 +61,9 @@ fun SavedScreen(
         bottomBar = {
             BottomNavBar(selected = 2, onSelect = { idx ->
                 when (idx) {
-                    0 -> navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { inclusive = true } }
-                    1 -> navController.navigate(Routes.PLAN_PLAIN)
-                    3 -> navController.navigate(Routes.MORE)
+                    0 -> navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { saveState = true }; launchSingleTop = true; restoreState = true }
+                    1 -> navController.navigate(Routes.PLAN_PLAIN) { popUpTo(Routes.HOME) { saveState = true }; launchSingleTop = true; restoreState = true }
+                    3 -> navController.navigate(Routes.MORE) { popUpTo(Routes.HOME) { saveState = true }; launchSingleTop = true; restoreState = true }
                 }
             })
         },

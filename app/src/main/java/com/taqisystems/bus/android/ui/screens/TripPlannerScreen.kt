@@ -188,9 +188,9 @@ fun TripPlannerScreen(
         bottomBar = {
             BottomNavBar(selected = 1, onSelect = { idx ->
                 when (idx) {
-                    0 -> navController.navigate(Routes.HOME) { popUpTo(Routes.HOME) { inclusive = true } }
-                    2 -> navController.navigate(Routes.SAVED)
-                    3 -> navController.navigate(Routes.MORE)
+                    0 -> navController.navigate(Routes.HOME) { popUpTo(Routes.TRIP_FLOW) { inclusive = true; saveState = true }; launchSingleTop = true; restoreState = true }
+                    2 -> navController.navigate(Routes.SAVED) { popUpTo(Routes.TRIP_FLOW) { inclusive = true; saveState = true }; launchSingleTop = true; restoreState = true }
+                    3 -> navController.navigate(Routes.MORE) { popUpTo(Routes.TRIP_FLOW) { inclusive = true; saveState = true }; launchSingleTop = true; restoreState = true }
                 }
             })
         },

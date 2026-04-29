@@ -51,6 +51,7 @@ class AppPreferences(private val context: Context) {
         runCatching {
             gson.fromJson<List<InboxNotification>>(json, object : TypeToken<List<InboxNotification>>() {}.type)
         }.getOrElse { emptyList() }
+            .distinctBy { it.id }   // guard against any persisted duplicates
     }
 
     val unreadNotificationCount: Flow<Int> = notifications.map { list -> list.count { !it.isRead } }
@@ -166,7 +167,7 @@ class AppPreferences(private val context: Context) {
                 val json = prefs[Keys.NOTIFICATIONS] ?: "[]"
                 gson.fromJson<List<InboxNotification>>(json, object : TypeToken<List<InboxNotification>>() {}.type)
             }.getOrElse { emptyList() }
-            val updated = (listOf(notification) + current).take(50)
+            val updated = (listOf(notification) + current.filter { it.id != notification.id }).take(50)
             prefs[Keys.NOTIFICATIONS] = gson.toJson(updated)
         }
     }
