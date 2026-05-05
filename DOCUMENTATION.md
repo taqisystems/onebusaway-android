@@ -1030,3 +1030,110 @@ The app only generates **Dynamic Maps (mobile)** charges — map tile rendering 
 Google provides a **$200 free credit/month**, covering ~28,500 map loads. Risk factors:
 - `HomeMapScreen` and `TripItineraryScreen` each contain one `GoogleMap` — opening the itinerary screen counts as a second billable load per session.
 - Never add the Google Places SDK for autocomplete; all place search uses the self-hosted Pelias geocoder at `geocode.kelantanbus.com`.
+
+---
+
+## 12. Unit Tests
+
+All unit tests are pure-JVM (no Android runtime required) and live in:
+
+```
+app/src/test/java/com/taqisystems/bus/android/
+├── model/
+│   ├── TransitTypeTest.kt
+│   ├── ObaArrivalTest.kt
+│   └── ObaRegionExtensionsTest.kt
+└── repository/
+    ├── DecodePolylineTest.kt
+    └── RegionsRepositoryTest.kt
+```
+
+Run with:
+```bash
+./gradlew testDebugUnitTest
+```
+
+### 12.1 Test dependencies
+
+Added to `gradle/libs.versions.toml` and `app/build.gradle.kts`:
+
+| Dependency | Purpose |
+|---|---|
+| `junit:4.13.2` | Test runner (pre-existing) |
+| `kotlinx-coroutines-test:1.9.0` | `runTest` for suspend functions |
+| `okhttp-mockwebserver:4.12.0` | Local HTTP server for `RegionsRepository` response tests |
+
+### 12.2 Test file reference
+
+#### `TransitTypeTest` — 14 tests
+Covers `TransitType.fromGtfsType(Int)` and `TransitType.fromGtfsTypes(Set<Int>)`.
+
+- All GTFS type integers (0 = LRT_TRAM, 1 = MRT_METRO, 2 = COMMUTER_RAIL, 3 = BUS, 4 = FERRY, 11 = MONORAIL).
+- Unknown positive / negative integers → `BUS`.
+- Empty set, bus-only, duplicate-bus, single non-bus, bus + non-bus, two non-bus → `MIXED`, three non-bus → `MIXED`, bus + two non-bus → `MIXED`.
+- Sanity check: all enum values have unique `color` values.
+
+#### `ObaArrivalTest` — 9 tests
+Covers `ObaArrival.liveMinutesUntilArrival()`.
+
+- Uses `predictedArrivalTime` when it is `> 0`; falls back to `scheduledArrivalTime` when predicted is `0`.
+- Returns negative value for a past arrival.
+- Returns `0` for an imminent arrival (< 60 s away).
+- Result is independent of the stale `minutesUntilArrival` stored field.
+- Data-class equality and inequality.
+- Default `transitType` is `BUS`; headway fields default to `false`/`null`.
+
+#### `ObaRegionExtensionsTest` — 5 tests
+Covers `ObaRegion.outerBoundingBox(): DoubleArray?`.
+
+- Empty bounds → `null`.
+- Single bound → correct `[minLat, maxLat, minLon, maxLon]` from `lat ± latSpan/2`, `lon ± lonSpan/2`.
+- Two non-overlapping bounds → outer union.
+- Two overlapping bounds → outer envelope.
+- Result array index order verified (`[0]` = minLat, `[1]` = maxLat, `[2]` = minLon, `[3]` = maxLon).
+- Negative (southern/western hemisphere) coordinates.
+
+#### `DecodePolylineTest` — 7 tests
+Covers `ObaRepository.decodePolyline(String)` (companion object static function).
+
+- Empty string → empty list.
+- `"_ibE_seK"` → `[(1.0, 2.0)]`.
+- `"~hbE~reK"` → `[(-1.0, -2.0)]`.
+- Google's canonical sample `"_p~iF~ps|U_ulLnnqC_mqNvxq\`@"` → 3 points, first ≈ `(38.5, -120.2)`, second ≈ `(40.7, -120.95)`, third ≈ `(43.252, -126.453)`.
+- All decoded points have finite lat/lon.
+
+#### `RegionsRepositoryTest` — 15 tests
+
+**`fetchRegions` (using `MockWebServer`):**
+- Inactive regions are filtered out.
+- `id`, `obaBaseUrl`, `sidecarBaseUrl` parsed correctly.
+- `centerLat` = average of bound lats; `latSpan` = max of bound latSpans.
+- Active regions have `active = true`.
+- Cache: second call with default `forceRefresh = false` makes no additional HTTP request.
+- `forceRefresh = true` always makes a fresh HTTP request.
+- Empty list in response body → empty result (no crash).
+
+**`findRegionForLocation` (pure, synchronous):**
+- Empty list → `null`.
+- Location inside a bound → matching region returned.
+- Location outside all bounds → `null`.
+- Location inside second region only → second region returned.
+- Points on exact boundary edges (min/max) are included.
+- Points just outside boundary are excluded.
+- When multiple regions overlap the same coordinate the **first** region in the list wins.
+
+**`REGIONS_URL` constant:**
+- Value is `"https://cdn.unrealasia.net/onebusaway/regions.json"`.
+
+### 12.3 Testability note — `RegionsRepository` URL injection
+
+To allow `MockWebServer` to intercept HTTP calls, `RegionsRepository` accepts an optional `regionsUrl` constructor parameter:
+
+```kotlin
+class RegionsRepository(
+    private val http: OkHttpClient = OkHttpClient(),
+    private val regionsUrl: String = REGIONS_URL,
+)
+```
+
+All production call sites pass no argument and therefore use `REGIONS_URL` as before. Tests pass the `MockWebServer` base URL.

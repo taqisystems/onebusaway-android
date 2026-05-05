@@ -31,14 +31,17 @@ private data class BoundJson(
     @SerializedName("lonSpan") val lonSpan: Double = 0.0,
 )
 
-class RegionsRepository(private val http: OkHttpClient = OkHttpClient()) {
+class RegionsRepository(
+    private val http: OkHttpClient = OkHttpClient(),
+    private val regionsUrl: String = REGIONS_URL,
+) {
     private val gson = Gson()
     private var cache: List<ObaRegion>? = null
 
     suspend fun fetchRegions(forceRefresh: Boolean = false): List<ObaRegion> =
         withContext(Dispatchers.IO) {
             if (!forceRefresh) cache?.let { return@withContext it }
-            val request = Request.Builder().url(REGIONS_URL).build()
+            val request = Request.Builder().url(regionsUrl).build()
             val body = http.newCall(request).execute().body?.string() ?: "[]"
             val resp = gson.fromJson(body, RegionsResponse::class.java)
             val regions = (resp.data?.list ?: emptyList())

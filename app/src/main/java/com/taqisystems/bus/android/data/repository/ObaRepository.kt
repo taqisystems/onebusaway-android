@@ -41,6 +41,7 @@ class ObaRepository(
     private var client = OnebusawaySdkOkHttpClientAsync.builder()
         .apiKey(apiKey)
         .baseUrl(baseUrl)
+        .putHeader("User-Agent", "KelantanBus/3.0 (Android)")
         .build()
 
     // Plain OkHttp for raw endpoints not covered by the SDK
@@ -56,6 +57,7 @@ class ObaRepository(
         client = OnebusawaySdkOkHttpClientAsync.builder()
             .apiKey(apiKey)
             .baseUrl(newUrl)
+            .putHeader("User-Agent", "KelantanBus/3.0 (Android)")
             .build()
     }
 
