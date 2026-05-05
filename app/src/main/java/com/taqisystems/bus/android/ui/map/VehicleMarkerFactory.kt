@@ -5,9 +5,11 @@ import android.graphics.*
 import android.graphics.drawable.Drawable
 import android.util.LruCache
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.DrawableCompat
 import com.google.android.gms.maps.model.BitmapDescriptor
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.taqisystems.bus.android.R
+import com.taqisystems.bus.android.data.model.TransitType
 
 /**
  * Returned by [VehicleMarkerFactory.get].
@@ -50,8 +52,8 @@ object VehicleMarkerFactory {
     private const val NUM_DIRECTIONS = 9
     const val HALF_WIND_NONE = 8
 
-    private val mCircleCache   = LruCache<String, Bitmap>(15)
-    private val mTemplateCache = LruCache<Int, Bitmap>(NUM_DIRECTIONS)
+    private val mCircleCache   = LruCache<String, Bitmap>(128)
+    private val mTemplateCache  = LruCache<Int, Bitmap>(128)
 
     // ── Direction conversion ─────────────────────────────────────────────────
 
@@ -73,64 +75,68 @@ object VehicleMarkerFactory {
         routeShortName: String,
         lastUpdateMs: Long?,
         isPredicted: Boolean,
+        statusLabel: String,
         showLabel: Boolean = true,
+        isPinned: Boolean = false,
+        transitType: TransitType = TransitType.BUS,
     ): VehicleMarkerResult {
         val halfWind = orientationToHalfWind(orientationDeg)
-        val circle   = getColoredCircle(context, statusColor, halfWind)
+        val circle   = getColoredCircle(context, statusColor, halfWind, transitType)
         if (!showLabel) {
             return VehicleMarkerResult(
                 descriptor = BitmapDescriptorFactory.fromBitmap(circle),
                 anchorV    = 0.5f,
             )
         }
-        val label = formatUpdateLabel(lastUpdateMs, isPredicted)
-        return composeMarker(context, circle, statusColor, routeShortName, label)
+        val label = formatUpdateLabel(statusLabel, lastUpdateMs, isPredicted)
+        return composeMarker(context, circle, statusColor, routeShortName, label, isPinned)
     }
 
-    // ── Elapsed-time label — mirrors OBA's CustomInfoWindowAdapter logic ──────
+    // ── Status + elapsed-time label ──────────────────────────────────────────
 
-    fun formatUpdateLabel(lastUpdateMs: Long?, isPredicted: Boolean): String {
+    fun formatUpdateLabel(statusLabel: String, lastUpdateMs: Long?, isPredicted: Boolean): String {
         if (!isPredicted || lastUpdateMs == null || lastUpdateMs == 0L) {
-            return "Calculated from schedule"
+            return statusLabel
         }
         val elapsedSec = (System.currentTimeMillis() - lastUpdateMs) / 1000L
         val elapsedMin = elapsedSec / 60L
         val secMod60   = elapsedSec % 60L
-        return if (elapsedSec < 60L) {
-            "Updated ${elapsedSec}s ago"
-        } else {
-            "Updated ${elapsedMin}m ${secMod60}s ago"
-        }
+        val ago = if (elapsedSec < 60L) "${elapsedSec}s ago" else "${elapsedMin}m ${secMod60}s ago"
+        return "$statusLabel · $ago"
     }
 
     // ── Coloured circle (OBA template + colorBitmap tint) ────────────────────
 
-    private fun getColoredCircle(context: Context, color: Int, halfWind: Int): Bitmap {
-        val key = "$halfWind $color"
+    private fun getColoredCircle(context: Context, color: Int, halfWind: Int,
+                                   transitType: TransitType = TransitType.BUS): Bitmap {
+        val key = "$halfWind $color ${transitType.name}"
         mCircleCache.get(key)?.let { return it }
-        val tinted = colorBitmap(getTemplate(context, halfWind), color)
+        val tinted = colorBitmap(getTemplate(context, halfWind, transitType), color)
         mCircleCache.put(key, tinted)
         return tinted
     }
 
-    private fun getTemplate(context: Context, halfWind: Int): Bitmap {
-        mTemplateCache.get(halfWind)?.let { return it }
-        val b = createTemplate(context, halfWind)
-        mTemplateCache.put(halfWind, b)
+    private fun getTemplate(context: Context, halfWind: Int,
+                             transitType: TransitType = TransitType.BUS): Bitmap {
+        val cacheKey = halfWind * 100 + transitType.ordinal
+        mTemplateCache.get(cacheKey)?.let { return it }
+        val b = createTemplate(context, halfWind, transitType)
+        mTemplateCache.put(cacheKey, b)
         return b
     }
 
     /**
-     * BLACK template: circle body + direction fin + bus icon from
-     * drawable/ic_bus_marker.xml.  White pixels in the vector (windows,
-     * tyres) are not pure BLACK so they are preserved through colorBitmap().
+     * BLACK template: circle body + direction fin + mode-specific icon drawn
+     * programmatically so every transit type gets its own recognisable symbol.
+     * White pixels are preserved through colorBitmap() (used for interior details).
      */
-    private fun createTemplate(context: Context, halfWind: Int): Bitmap {
+    private fun createTemplate(context: Context, halfWind: Int,
+                                transitType: TransitType = TransitType.BUS): Bitmap {
         val dp = context.resources.displayMetrics.density
 
-        val radius  = 20f * dp
-        val finLen  = 10f * dp
-        val finBase =  8f * dp
+        val radius  = 14f * dp   // was 20dp — now matches stop badge scale (~28dp diameter)
+        val finLen  =  7f * dp   // was 10dp
+        val finBase =  6f * dp   // was  8dp
         val extent  = radius + finLen + 2f * dp
         val size    = (extent * 2f).toInt()
         val cx      = size / 2f
@@ -159,18 +165,31 @@ object VehicleMarkerFactory {
         // Circle body
         canvas.drawCircle(cx, cy, radius, black)
 
-        // Bus icon from vector drawable — drawn on top of the circle
-        val busDrawable: Drawable? = ContextCompat.getDrawable(
-            context, R.drawable.ic_bus_marker
-        )
-        if (busDrawable != null) {
-            val iconSize = (radius * 1.55f).toInt()
-            val l = (cx - iconSize / 2f).toInt()
-            val t = (cy - iconSize / 2f).toInt()
-            busDrawable.setBounds(l, t, l + iconSize, t + iconSize)
-            busDrawable.draw(canvas)
+        // Mode-specific icon drawn directly on canvas in WHITE.
+        // Drawing in WHITE means colorBitmap() leaves them untouched while
+        // tinting the BLACK circle body — guaranteed on every device/theme.
+        // Map each transit type to its white-fill vector drawable.
+        // All drawables use #FFFFFFFF fill so colorBitmap() tints the circle
+        // body but leaves the icon white — identical to how ic_bus_marker works.
+        val iconRes = when (transitType) {
+            TransitType.COMMUTER_RAIL -> R.drawable.ic_train_marker
+            TransitType.LRT_TRAM      -> R.drawable.ic_lrt_marker
+            TransitType.MRT_METRO     -> R.drawable.ic_mrt_marker
+            TransitType.MONORAIL      -> R.drawable.ic_monorail_marker
+            TransitType.FERRY         -> null
+            else                      -> R.drawable.ic_bus_marker
+        }
+        val d = iconRes?.let { ContextCompat.getDrawable(context, it) }
+        if (d != null) {
+            val sz = (radius * 1.55f).toInt()
+            d.setBounds((cx - sz / 2f).toInt(), (cy - sz / 2f).toInt(),
+                        (cx + sz / 2f).toInt(), (cy + sz / 2f).toInt())
+            d.draw(canvas)
         } else {
-            drawBusFallback(canvas, cx, cy, radius)
+            when (transitType) {
+                TransitType.FERRY -> drawFerryIcon(canvas, cx, cy, radius)
+                else              -> drawBusFallback(canvas, cx, cy, radius)
+            }
         }
 
         return bmp
@@ -184,19 +203,22 @@ object VehicleMarkerFactory {
         statusColor: Int,
         routeShortName: String,
         labelText: String,
+        isPinned: Boolean = false,
     ): VehicleMarkerResult {
         val dp = context.resources.displayMetrics.density
 
+        val textColor = if (isPinned) Color.WHITE else statusColor
         val routePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color          = statusColor
-            textSize       = 11f * dp
+            color          = textColor
+            textSize       = if (isPinned) 10f * dp else 9f * dp
             isFakeBoldText = true
             textAlign      = Paint.Align.CENTER
             typeface       = Typeface.DEFAULT_BOLD
         }
         val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color     = Color.parseColor("#374151")
-            textSize  = 8f * dp
+            color     = textColor
+            alpha     = if (isPinned) 255 else 210
+            textSize  = if (isPinned) 8f * dp else 7f * dp
             textAlign = Paint.Align.CENTER
         }
 
@@ -232,7 +254,7 @@ object VehicleMarkerFactory {
 
         // Pill background
         val pillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE; style = Paint.Style.FILL
+            color = if (isPinned) statusColor else Color.WHITE; style = Paint.Style.FILL
         }
         canvas.drawRoundRect(pL, pT, pL + pillW, pT + pillH, pillR, pillR, pillPaint)
 
@@ -255,6 +277,109 @@ object VehicleMarkerFactory {
             descriptor = BitmapDescriptorFactory.fromBitmap(bmp),
             anchorV    = anchorV,
         )
+    }
+
+    // ── Mode-specific inner icons (all WHITE so colorBitmap leaves them intact) ──
+
+    /**
+     * KTM Commuter / train — front-face view:
+     *  - White rounded cab body
+     *  - Two black windshield panes (colorBitmap tints them to status color = glass effect)
+     *  - Two white wheels at the bottom
+     * Mirrors the visual language of the Material 'train' icon at map scale.
+     */
+    private fun drawTrainFront(canvas: Canvas, cx: Float, cy: Float, r: Float) {
+        val s     = r * 0.52f
+        val white = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.FILL }
+        val black = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; style = Paint.Style.FILL }
+        // Cab body
+        canvas.drawRoundRect(cx - s*.78f, cy - s*.80f, cx + s*.78f, cy + s*.52f,
+            s*.22f, s*.22f, white)
+        // Left windshield pane (becomes status-color via colorBitmap)
+        canvas.drawRoundRect(cx - s*.68f, cy - s*.68f, cx - s*.08f, cy - s*.08f,
+            s*.10f, s*.10f, black)
+        // Right windshield pane
+        canvas.drawRoundRect(cx + s*.08f, cy - s*.68f, cx + s*.68f, cy - s*.08f,
+            s*.10f, s*.10f, black)
+        // Two wheels
+        val wy = cy + s*.52f + s*.16f
+        canvas.drawCircle(cx - s*.44f, wy, s*.16f, white)
+        canvas.drawCircle(cx + s*.44f, wy, s*.16f, white)
+    }
+
+    /** LRT: compact tram car body + track line + two wheels — white on tinted circle. */
+    private fun drawLrtIcon(canvas: Canvas, cx: Float, cy: Float, r: Float) {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.FILL }
+        val s = r * 0.60f
+        // car body
+        val bodyW = s * 1.30f; val bodyH = s * 0.62f
+        val bodyTop = cy - s * 0.62f
+        canvas.drawRoundRect(cx - bodyW/2, bodyTop, cx + bodyW/2, bodyTop + bodyH,
+            bodyH*0.28f, bodyH*0.28f, p)
+        // track line
+        val trackY = bodyTop + bodyH + s*0.12f
+        canvas.drawRoundRect(cx - bodyW*0.60f, trackY, cx + bodyW*0.60f, trackY + s*0.18f,
+            s*0.09f, s*0.09f, p)
+        // two wheels
+        val wR = s * 0.16f
+        canvas.drawCircle(cx - bodyW*0.28f, trackY + s*0.09f, wR, p)
+        canvas.drawCircle(cx + bodyW*0.28f, trackY + s*0.09f, wR, p)
+        // window strip cut-out — draw in BLACK so colorBitmap turns it back to status color
+        val winPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; style = Paint.Style.FILL }
+        val winH = bodyH * 0.34f
+        val winTop = bodyTop + bodyH * 0.12f
+        canvas.drawRoundRect(cx - bodyW*0.38f, winTop, cx + bodyW*0.38f, winTop + winH,
+            winH*0.25f, winH*0.25f, winPaint)
+    }
+
+    /** MRT/Metro: bold circle ring + centre dot — white on tinted circle. */
+    private fun drawMrtIcon(canvas: Canvas, cx: Float, cy: Float, r: Float) {
+        val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = r * 0.24f
+        }
+        canvas.drawCircle(cx, cy - r*0.06f, r * 0.50f, ringPaint)
+        val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.FILL }
+        canvas.drawCircle(cx, cy - r*0.06f, r * 0.14f, dotPaint)
+    }
+
+    /** KTM Commuter: two heavy parallel rails + three cross-ties — white on tinted circle. */
+    private fun drawRailIcon(canvas: Canvas, cx: Float, cy: Float, r: Float) {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.FILL }
+        val s = r * 0.62f
+        val railW = s * 1.30f; val railH = s * 0.22f; val railR = railH / 2
+        val topY = cy - s * 0.54f; val botY = cy + s * 0.10f
+        canvas.drawRoundRect(cx-railW/2, topY, cx+railW/2, topY+railH, railR, railR, p)
+        canvas.drawRoundRect(cx-railW/2, botY, cx+railW/2, botY+railH, railR, railR, p)
+        val tieW = s * 0.22f; val tieH = botY - topY + railH
+        for (ox in listOf(-railW*0.38f, 0f, railW*0.38f))
+            canvas.drawRoundRect(cx+ox-tieW/2, topY, cx+ox+tieW/2, topY+tieH, tieW/2, tieW/2, p)
+    }
+
+    /** Monorail: single elevated beam + short vertical strut — white on tinted circle. */
+    private fun drawMonorailIcon(canvas: Canvas, cx: Float, cy: Float, r: Float) {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.FILL }
+        val s = r * 0.60f
+        val beamW = s * 1.32f; val beamH = s * 0.26f
+        val beamTop = cy - s * 0.20f
+        canvas.drawRoundRect(cx-beamW/2, beamTop, cx+beamW/2, beamTop+beamH, beamH/2, beamH/2, p)
+        val strutW = s * 0.22f
+        canvas.drawRoundRect(cx-strutW/2, beamTop+beamH, cx+strutW/2, cy+s*0.56f, strutW/2, strutW/2, p)
+    }
+
+    /** Ferry: two wave arcs — white on tinted circle. */
+    private fun drawFerryIcon(canvas: Canvas, cx: Float, cy: Float, r: Float) {
+        val wp = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE; style = Paint.Style.STROKE
+            strokeWidth = r * 0.20f; strokeCap = Paint.Cap.ROUND
+        }
+        val s = r * 0.55f
+        for (offsetY in listOf(-s*0.30f, s*0.30f)) {
+            val path = Path()
+            path.moveTo(cx - s, cy + offsetY)
+            path.quadTo(cx - s*0.5f, cy + offsetY - s*0.28f, cx, cy + offsetY)
+            path.quadTo(cx + s*0.5f, cy + offsetY + s*0.28f, cx + s, cy + offsetY)
+            canvas.drawPath(path, wp)
+        }
     }
 
     // ── Programmatic bus fallback (if drawable not found) ────────────────────

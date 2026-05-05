@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import com.taqisystems.bus.android.data.receiver.NotificationDeleteReceiver
 import com.onesignal.notifications.INotificationReceivedEvent
 import com.onesignal.notifications.INotificationServiceExtension
 import com.taqisystems.bus.android.KelantanBusApplication
@@ -35,13 +36,15 @@ class KelantanBusNotificationExtension : INotificationServiceExtension {
             }
         }.getOrNull()
 
+        val notifId = System.currentTimeMillis().toInt()
         val entry = InboxNotification(
-            id         = n.notificationId?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString(),
-            title      = n.title?.takeIf { it.isNotBlank() } ?: "Kelantan Bus",
-            body       = n.body  ?: "",
-            receivedAt = System.currentTimeMillis(),
-            isRead     = false,
-            deepLink   = deepLink,
+            id             = n.notificationId?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString(),
+            title          = n.title?.takeIf { it.isNotBlank() } ?: "Kelantan Bus",
+            body           = n.body  ?: "",
+            receivedAt     = System.currentTimeMillis(),
+            isRead         = false,
+            deepLink       = deepLink,
+            systemNotifId  = notifId,
         )
 
         runBlocking {
@@ -67,7 +70,6 @@ class KelantanBusNotificationExtension : INotificationServiceExtension {
         event.preventDefault()
 
         val context = ServiceLocator.application
-        val notifId = System.currentTimeMillis().toInt()
 
         val tapIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -78,12 +80,24 @@ class KelantanBusNotificationExtension : INotificationServiceExtension {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
+// Delete intent: when user swipes the notification away from the tray,
+        // remove it from the in-app inbox too.
+        val deletePi = PendingIntent.getBroadcast(
+            context,
+            notifId + 1,
+            Intent(context, NotificationDeleteReceiver::class.java).apply {
+                putExtra(NotificationDeleteReceiver.EXTRA_NOTIF_ID, entry.id)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
         val notification = NotificationCompat.Builder(context, KelantanBusApplication.CHANNEL_ID_REMINDERS)
-            .setSmallIcon(R.drawable.ic_stat_onesignal_default)
+                .setSmallIcon(R.drawable.ic_stat_onesignal_default)
             .setContentTitle(entry.title)
             .setContentText(entry.body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(entry.body))
             .setContentIntent(pendingIntent)
+            .setDeleteIntent(deletePi)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()

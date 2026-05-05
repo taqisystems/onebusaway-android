@@ -7,8 +7,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-class GeocodingRepository {
-    private val http = OkHttpClient()
+class GeocodingRepository(private val http: OkHttpClient = OkHttpClient()) {
     private val gson = Gson()
 
     suspend fun searchPlaces(

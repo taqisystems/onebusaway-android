@@ -21,7 +21,6 @@ import com.taqisystems.bus.android.ui.theme.OnSurfaceVariant
 import com.taqisystems.bus.android.ui.theme.OutlineVariant
 import com.taqisystems.bus.android.ui.theme.Primary
 import com.taqisystems.bus.android.ui.theme.SurfaceContainerLow
-import com.taqisystems.bus.android.ServiceLocator
 
 /**
  * Bottom navigation bar — white bg, subtle top divider, navy active, grey inactive.
@@ -35,7 +34,6 @@ fun BottomNavBar(
     modifier: Modifier = Modifier,
     onSelect: (Int) -> Unit,
 ) {
-    val unreadCount by ServiceLocator.preferences.unreadNotificationCount.collectAsState(initial = 0)
     Column(modifier = modifier) {
         HorizontalDivider(color = OutlineVariant.copy(alpha = 0.6f), thickness = 1.dp)
         NavigationBar(
@@ -85,22 +83,7 @@ fun BottomNavBar(
             NavigationBarItem(
                 selected = selected == 3,
                 onClick  = { onSelect(3) },
-                icon     = {
-                    BadgedBox(
-                        badge = {
-                            if (unreadCount > 0) {
-                                Badge(containerColor = MaterialTheme.colorScheme.error) {
-                                    Text(
-                                        if (unreadCount > 99) "99+" else unreadCount.toString(),
-                                        fontSize = 9.sp,
-                                    )
-                                }
-                            }
-                        },
-                    ) {
-                        Icon(Icons.Filled.MoreHoriz, "More")
-                    }
-                },
+                icon     = { Icon(Icons.Filled.MoreHoriz, "More") },
                 label  = { Text("More", fontSize = 10.sp) },
                 colors = itemColors,
             )

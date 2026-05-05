@@ -31,8 +31,7 @@ private data class BoundJson(
     @SerializedName("lonSpan") val lonSpan: Double = 0.0,
 )
 
-class RegionsRepository {
-    private val http = OkHttpClient()
+class RegionsRepository(private val http: OkHttpClient = OkHttpClient()) {
     private val gson = Gson()
     private var cache: List<ObaRegion>? = null
 

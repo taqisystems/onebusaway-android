@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import androidx.core.app.NotificationManagerCompat
 import com.taqisystems.bus.android.R
 import com.taqisystems.bus.android.ServiceLocator
 import com.taqisystems.bus.android.data.model.InboxNotification
@@ -50,20 +51,28 @@ fun NotificationsScreen(navController: NavController) {
                 title = { Text("Notifications", fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 },
                 actions = {
                     if (notifications.isNotEmpty()) {
-                        IconButton(onClick = { scope.launch { prefs.clearAllNotifications() } }) {
+                        IconButton(onClick = {
+                            scope.launch { prefs.clearAllNotifications() }
+                            NotificationManagerCompat.from(navController.context).cancelAll()
+                        }) {
                             Icon(
                                 Icons.Default.DeleteSweep,
                                 contentDescription = "Clear all",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = MaterialTheme.colorScheme.onPrimary,
                             )
                         }
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor          = MaterialTheme.colorScheme.primary,
+                    titleContentColor       = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
             )
         },
     ) { innerPadding ->
@@ -100,7 +109,13 @@ fun NotificationsScreen(navController: NavController) {
             ) {
                 items(notifications, key = { it.id }) { notification ->
                     SwipeToDeleteRow(
-                        onDelete = { scope.launch { prefs.deleteNotification(notification.id) } },
+                        onDelete = {
+                            scope.launch { prefs.deleteNotification(notification.id) }
+                            if (notification.systemNotifId != 0) {
+                                NotificationManagerCompat.from(navController.context)
+                                    .cancel(notification.systemNotifId)
+                            }
+                        },
                     ) {
                         NotificationRow(
                             notification = notification,
@@ -164,7 +179,7 @@ private fun SwipeToDeleteRow(onDelete: () -> Unit, content: @Composable () -> Un
 
 @Composable
 private fun NotificationRow(notification: InboxNotification, onClick: () -> Unit) {
-    val bgColor = if (!notification.isRead) PrimaryContainer.copy(alpha = 0.35f) else Color.Transparent
+    val bgColor = if (!notification.isRead) PrimaryContainer.copy(alpha = 0.25f) else Color.Transparent
     val isClickable = notification.deepLink != null
 
     Row(
@@ -175,21 +190,33 @@ private fun NotificationRow(notification: InboxNotification, onClick: () -> Unit
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center,
-        ) {
-            androidx.compose.foundation.Image(
-                painter = painterResource(R.drawable.logo),
-                contentDescription = "Kelantan Bus",
-                contentScale = ContentScale.Crop,
+        // Avatar + unread dot overlay
+        Box(modifier = Modifier.size(44.dp)) {
+            Box(
                 modifier = Modifier
                     .size(40.dp)
-                    .clip(CircleShape),
-            )
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
+                androidx.compose.foundation.Image(
+                    painter = painterResource(R.drawable.logo),
+                    contentDescription = "Kelantan Bus",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape),
+                )
+            }
+            if (!notification.isRead) {
+                Box(
+                    modifier = Modifier
+                        .size(11.dp)
+                        .clip(CircleShape)
+                        .background(Primary)
+                        .align(Alignment.TopEnd),
+                )
+            }
         }
 
         Spacer(Modifier.width(12.dp))

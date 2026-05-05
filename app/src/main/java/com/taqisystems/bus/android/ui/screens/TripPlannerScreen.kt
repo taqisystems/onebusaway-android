@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -24,11 +25,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.SolidColor
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -174,11 +182,19 @@ fun TripPlannerScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        "Plan a Trip",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
+                    Column {
+                        Text(
+                            "Plan a Trip",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            "Find bus, rail & transit routes",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
@@ -188,188 +204,327 @@ fun TripPlannerScreen(
         bottomBar = {
             BottomNavBar(selected = 1, onSelect = { idx ->
                 when (idx) {
-                    0 -> navController.navigate(Routes.HOME) { popUpTo(Routes.TRIP_FLOW) { inclusive = true; saveState = true }; launchSingleTop = true; restoreState = true }
+                    0 -> navController.popBackStack(Routes.HOME, inclusive = false)
                     2 -> navController.navigate(Routes.SAVED) { popUpTo(Routes.TRIP_FLOW) { inclusive = true; saveState = true }; launchSingleTop = true; restoreState = true }
                     3 -> navController.navigate(Routes.MORE) { popUpTo(Routes.TRIP_FLOW) { inclusive = true; saveState = true }; launchSingleTop = true; restoreState = true }
                 }
             })
         },
     ) { innerPadding ->
-        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).imePadding()) {
+        // Measure live IME height so suggestion dropdowns can adapt their size
+        val imeHeight = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+        val keyboardOpen = imeHeight > 0.dp
+        // Tall when keyboard hidden (show up to ~6 rows), short when open (show ~2.5 rows)
+        val suggestionMaxHeight = if (keyboardOpen) 130.dp else 280.dp
+
+        val suggestionsActive = activeField != null && uiState.suggestions.isNotEmpty()
+        val listState = rememberLazyListState()
+
+        // Auto-scroll past the form to the first result when results arrive
+        LaunchedEffect(uiState.itineraries.isNotEmpty()) {
+            if (uiState.itineraries.isNotEmpty() && !suggestionsActive) {
+                listState.animateScrollToItem(1) // item 0 = form card, item 1 = "Route Options" header
+            }
+        }
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().padding(innerPadding).imePadding(),
+        ) {
 
             // ── Input card ──────────────────────────────────────────────────
+            item {
             Card(
-                modifier = Modifier.fillMaxWidth().padding(12.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
-                elevation = CardDefaults.cardElevation(0.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.padding(16.dp)) {
+
+                    // ── From / To rows with connector ────────────────────────
+                    val connectorColor = MaterialTheme.colorScheme.outlineVariant
+                    Row(verticalAlignment = Alignment.Top) {
+
+                        // Left column: icons + dashed connector
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.width(36.dp),
+                        ) {
+                            Spacer(Modifier.height(10.dp))
+                            // Origin dot
+                            Box(
+                                modifier = Modifier
+                                    .size(12.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(Primary),
+                            )
+                            // Dashed connector line
+                            val dashColor = connectorColor
+                            Box(
+                                modifier = Modifier
+                                    .width(2.dp)
+                                    .height(38.dp)
+                                    .drawBehind {
+                                        drawLine(
+                                            color = dashColor,
+                                            start = Offset(size.width / 2, 0f),
+                                            end = Offset(size.width / 2, size.height),
+                                            strokeWidth = 2.dp.toPx(),
+                                            pathEffect = PathEffect.dashPathEffect(
+                                                floatArrayOf(6f, 6f), 0f
+                                            ),
+                                        )
+                                    },
+                            )
+                            // Destination pin
+                            Icon(
+                                Icons.Default.LocationOn,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+
+                        Spacer(Modifier.width(10.dp))
+
+                        // Middle column: text fields
+                        Column(modifier = Modifier.weight(1f)) {
+                            // From field
                             LocationField(
                                 label = "From",
+                                hint = "Enter origin",
                                 value = uiState.originText,
                                 onValueChange = { viewModel.setOriginText(it); activeField = "origin" },
                                 onClear = { viewModel.clearOrigin(); activeField = null },
                                 isFocused = activeField == "origin",
                                 onFocused = { activeField = "origin" },
-                                leadingIcon = {
-                                    Icon(Icons.Default.TripOrigin, contentDescription = null, tint = Primary, modifier = Modifier.size(20.dp))
-                                },
                             )
+                            // Inline dropdown under "From" field
+                            if (activeField == "origin" && uiState.suggestions.isNotEmpty()) {
+                                SuggestionsDropdown(
+                                    suggestions = uiState.suggestions,
+                                    maxHeight = suggestionMaxHeight,
+                                    onSelect = { viewModel.selectOrigin(it); activeField = null },
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                            Spacer(Modifier.height(8.dp))
+                            // To field
+                            LocationField(
+                                label = "To",
+                                hint = "Enter destination",
+                                value = uiState.destinationText,
+                                onValueChange = { viewModel.setDestinationText(it); activeField = "destination" },
+                                onClear = { viewModel.clearDestination(); activeField = null },
+                                isFocused = activeField == "destination",
+                                onFocused = { activeField = "destination" },
+                            )
+                            // Inline dropdown under "To" field
+                            if (activeField == "destination" && uiState.suggestions.isNotEmpty()) {
+                                SuggestionsDropdown(
+                                    suggestions = uiState.suggestions,
+                                    maxHeight = suggestionMaxHeight,
+                                    onSelect = { viewModel.selectDestination(it); activeField = null },
+                                )
+                            }
                         }
-                        if (gpsLoading) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp).padding(end = 4.dp), strokeWidth = 2.dp, color = Blue600)
-                        } else {
-                            IconButton(onClick = { onGpsClick() }, modifier = Modifier.size(36.dp)) {
-                                Icon(Icons.Default.MyLocation, contentDescription = "Use my location", tint = Blue600, modifier = Modifier.size(20.dp))
+
+                        // Right column: GPS + swap
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(start = 4.dp),
+                        ) {
+                            if (gpsLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Blue600,
+                                )
+                            } else {
+                                IconButton(onClick = { onGpsClick() }, modifier = Modifier.size(36.dp)) {
+                                    Icon(Icons.Default.MyLocation, contentDescription = "My location", tint = Blue600, modifier = Modifier.size(20.dp))
+                                }
+                            }
+                            // Spacer sized to visually align swap with the To field:
+                            // top-label(~16dp) + field(~22dp) + gap(8dp) + divider(0.5dp) + gap(8dp) = ~54dp
+                            // minus the GPS button (36dp) = ~18dp between the two buttons
+                            Spacer(Modifier.height(18.dp))
+                            IconButton(
+                                onClick = { viewModel.swapOriginDestination() },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                            ) {
+                                Icon(Icons.Default.SwapVert, contentDescription = "Swap", tint = Blue600, modifier = Modifier.size(20.dp))
                             }
                         }
                     }
-                    // Suggestions under "From" field
-                    if (activeField == "origin" && uiState.suggestions.isNotEmpty()) {
-                        SuggestionsDropdown(
-                            suggestions = uiState.suggestions,
-                            onSelect = { viewModel.selectOrigin(it); activeField = null },
-                        )
-                    }
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
-                    LocationField(
-                        label = "To",
-                        value = uiState.destinationText,
-                        onValueChange = { viewModel.setDestinationText(it); activeField = "destination" },
-                        onClear = { viewModel.clearDestination(); activeField = null },
-                        isFocused = activeField == "destination",
-                        onFocused = { activeField = "destination" },
-                        leadingIcon = {
-                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
-                        },
+
+                    Spacer(Modifier.height(14.dp))
+                    HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    Spacer(Modifier.height(12.dp))
+
+                    // ── When: time picker ────────────────────────────────────
+                    Text(
+                        "WHEN",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.padding(bottom = 6.dp),
                     )
-                    // Suggestions under "To" field
-                    if (activeField == "destination" && uiState.suggestions.isNotEmpty()) {
-                        SuggestionsDropdown(
-                            suggestions = uiState.suggestions,
-                            onSelect = { viewModel.selectDestination(it); activeField = null },
-                        )
-                    }
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-
-                    // Swap + time picker button
-                    Row(
+                    OutlinedButton(
+                        onClick = { showTimePicker = true },
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     ) {
-                        IconButton(onClick = { viewModel.swapOriginDestination() }, modifier = Modifier.size(36.dp)) {
-                            Icon(Icons.Default.SwapVert, contentDescription = "Swap", tint = Blue600)
-                        }
-                        Spacer(Modifier.width(4.dp))
-                        OutlinedButton(
-                            onClick = { showTimePicker = true },
+                        Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            timeBtnLabel(uiState.departMode, uiState.selectedDate, uiState.selectedTime),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                        ) {
-                            Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                timeBtnLabel(uiState.departMode, uiState.selectedDate, uiState.selectedTime),
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                            )
-                        }
+                        )
+                        Icon(Icons.Default.ExpandMore, contentDescription = null, modifier = Modifier.size(18.dp))
                     }
 
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(12.dp))
 
-                    // Transport mode chips
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        ModeChip("All", "TRANSIT,WALK", uiState.selectedMode, viewModel::setMode)
-                        ModeChip("Bus", "BUS,WALK", uiState.selectedMode, viewModel::setMode)
-                        ModeChip("Train", "RAIL,WALK", uiState.selectedMode, viewModel::setMode)
+                    // ── Mode chips ───────────────────────────────────────────
+                    Text(
+                        "MODE",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.padding(bottom = 6.dp),
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(horizontal = 0.dp),
+                    ) {
+                        item { ModeChip("All",      "TRANSIT,WALK",  uiState.selectedMode, viewModel::setMode) }
+                        item { ModeChip("Bus",      "BUS,WALK",      uiState.selectedMode, viewModel::setMode) }
+                        item { ModeChip("LRT",      "TRAM,WALK",     uiState.selectedMode, viewModel::setMode) }
+                        item { ModeChip("MRT",      "SUBWAY,WALK",   uiState.selectedMode, viewModel::setMode) }
+                        item { ModeChip("Rail",     "RAIL,WALK",     uiState.selectedMode, viewModel::setMode) }
+                        item { ModeChip("Monorail", "MONORAIL,WALK", uiState.selectedMode, viewModel::setMode) }
                     }
 
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(14.dp))
 
-                    // Plan button
+                    // ── Plan button ──────────────────────────────────────────
                     Button(
                         onClick = { viewModel.planTrip(); activeField = null },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
                         enabled = uiState.origin != null && uiState.destination != null && !uiState.loading,
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                        ),
                     ) {
                         if (uiState.loading) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Finding Routes…")
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                            Spacer(Modifier.width(10.dp))
+                            Text("Finding Routes…", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                         } else {
-                            Icon(Icons.Default.Search, contentDescription = null)
-                            Spacer(Modifier.width(6.dp))
-                            Text("Find Routes")
+                            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Find Routes", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
             }
+            } // end item { Card }
 
             // ── Error ────────────────────────────────────────────────────────
-            uiState.error?.let { error ->
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f)
-                    ),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.ErrorOutline,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(22.dp).padding(top = 2.dp),
-                        )
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                "No route found",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                            )
-                            Text(
-                                error,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                            )
+            if (!suggestionsActive) {
+                uiState.error?.let { error ->
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f)
+                            ),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(22.dp).padding(top = 2.dp),
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        "No route found",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                    )
+                                    Text(
+                                        error,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                    )
+                                }
+                            }
                         }
+                        Spacer(Modifier.height(8.dp))
                     }
                 }
-                Spacer(Modifier.height(8.dp))
             }
 
             // ── Results ──────────────────────────────────────────────────────
-            if (uiState.itineraries.isNotEmpty()) {
-                Text(
-                    "Route Options",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(uiState.itineraries.take(5)) { itinerary ->
-                        ItineraryCard(
-                            itinerary = itinerary,
-                            onClick = {
-                                SelectedItineraryHolder.itinerary = itinerary
-                                viewModel.selectItinerary(itinerary)
-                                navController.navigate(Routes.TRIP_ITINERARY)
-                            },
+            if (!suggestionsActive && uiState.itineraries.isNotEmpty()) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Route Options",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
                         )
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        ) {
+                            Text(
+                                "${uiState.itineraries.size} found",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            )
+                        }
                     }
+                }
+                items(uiState.itineraries) { itinerary ->
+                    ItineraryCard(
+                        itinerary = itinerary,
+                        onClick = {
+                            SelectedItineraryHolder.itinerary = itinerary
+                            viewModel.selectItinerary(itinerary)
+                            navController.navigate(Routes.TRIP_ITINERARY)
+                        },
+                    )
                 }
             }
         }
@@ -422,12 +577,43 @@ private fun DateTimePickerSheet(
                 .navigationBarsPadding()
                 .padding(bottom = 24.dp),
         ) {
-            Text(
-                "Departure Options",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
+            // Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Default.Schedule,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text(
+                        "Departure Options",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        "Choose when you want to travel",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            Spacer(Modifier.height(16.dp))
 
             // ── Mode toggle — full-width segmented 3-button row ──────────────────
             val modes = listOf(
@@ -489,10 +675,11 @@ private fun DateTimePickerSheet(
 
                 // ── Date chips ───────────────────────────────────────────────────
                 Text(
-                    "Date",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
+                    "DATE",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    letterSpacing = 1.sp,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 Spacer(Modifier.height(8.dp))
@@ -502,23 +689,18 @@ private fun DateTimePickerSheet(
                 ) {
                     items(dateList) { (label, date) ->
                         val isSel = date == selectedDate
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(
-                                    if (isSel) Blue600
-                                    else MaterialTheme.colorScheme.surfaceContainerHigh
-                                )
-                                .clickable { selectedDate = date }
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            contentAlignment = Alignment.Center,
+                        Surface(
+                            onClick = { selectedDate = date },
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSel) Blue600 else MaterialTheme.colorScheme.surfaceContainerLowest,
+                            border = if (!isSel) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null,
                         ) {
                             Text(
                                 label,
-                                fontSize = 13.sp,
-                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSel) Color.White
-                                        else MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSel) Color.White else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                             )
                         }
                     }
@@ -528,10 +710,11 @@ private fun DateTimePickerSheet(
 
                 // ── Time grid — 4 columns, all cells equal tap target ────────────
                 Text(
-                    "Time",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
+                    "TIME",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    letterSpacing = 1.sp,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 Spacer(Modifier.height(8.dp))
@@ -546,26 +729,26 @@ private fun DateTimePickerSheet(
                 ) {
                     items(timeSlots) { (label, value) ->
                         val isSel = value == selectedTime
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(
-                                    if (isSel) Blue600
-                                    else MaterialTheme.colorScheme.surfaceContainerHigh
-                                )
-                                .clickable { selectedTime = value }
-                                .padding(vertical = 12.dp),
-                            contentAlignment = Alignment.Center,
+                        Surface(
+                            onClick = { selectedTime = value },
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSel) Blue600 else MaterialTheme.colorScheme.surfaceContainerLowest,
+                            border = if (!isSel) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null,
                         ) {
-                            Text(
-                                label,
-                                fontSize = 13.sp,
-                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSel) Color.White
-                                        else MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSel) Color.White else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                )
+                            }
                         }
                     }
                 }
@@ -578,11 +761,11 @@ private fun DateTimePickerSheet(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
                         .height(52.dp),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(14.dp),
                 ) {
-                    Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Confirm", style = MaterialTheme.typography.labelLarge)
+                    Text("Confirm", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -594,10 +777,13 @@ private fun DateTimePickerSheet(
 @Composable
 private fun ModeChip(label: String, modeValue: String, selected: String, onSelect: (String) -> Unit) {
     val isSelected = selected == modeValue
-    val icon = when {
-        label == "Bus"   -> Icons.Default.DirectionsBus
-        label == "Train" -> Icons.Default.Train
-        else             -> Icons.Default.DirectionsTransit
+    val icon = when (label) {
+        "Bus"      -> Icons.Default.DirectionsBus
+        "LRT"      -> Icons.Default.Tram
+        "MRT"      -> Icons.Default.DirectionsSubway
+        "Rail"     -> Icons.Default.Train
+        "Monorail" -> Icons.Default.Train
+        else       -> Icons.Default.DirectionsTransit  // "All"
     }
     Surface(
         onClick = { onSelect(modeValue) },
@@ -606,20 +792,20 @@ private fun ModeChip(label: String, modeValue: String, selected: String, onSelec
         border = if (!isSelected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                label,
-                style = MaterialTheme.typography.labelLarge,
-                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.width(4.dp))
             Icon(
                 icon,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
                 tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
             )
         }
     }
@@ -630,64 +816,138 @@ private fun ModeChip(label: String, modeValue: String, selected: String, onSelec
 @Composable
 private fun LocationField(
     label: String,
+    hint: String,
     value: String,
     onValueChange: (String) -> Unit,
     onClear: () -> Unit,
     isFocused: Boolean,
     onFocused: () -> Unit,
-    leadingIcon: @Composable () -> Unit,
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        leadingIcon()
-        Spacer(Modifier.width(8.dp))
-        OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
-            placeholder = { Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant) },
-            modifier = Modifier.weight(1f).clickable { onFocused() },
-            singleLine = true,
-            trailingIcon = {
-                if (value.isNotBlank()) {
-                    IconButton(onClick = onClear, modifier = Modifier.size(18.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(16.dp))
-                    }
-                }
-            },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = if (isFocused) Blue600 else Color.Transparent,
-                unfocusedBorderColor = Color.Transparent,
-            ),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+    Column(modifier = Modifier.clickable { onFocused() }) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = if (isFocused) Blue600 else MaterialTheme.colorScheme.onSurfaceVariant,
+            letterSpacing = 0.5.sp,
         )
+        Spacer(Modifier.height(2.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Medium,
+                ),
+                cursorBrush = SolidColor(Blue600),
+                modifier = Modifier.weight(1f),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                decorationBox = { inner ->
+                    if (value.isEmpty()) {
+                        Text(
+                            hint,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        )
+                    }
+                    inner()
+                },
+            )
+            if (value.isNotBlank()) {
+                Spacer(Modifier.width(4.dp))
+                IconButton(onClick = onClear, modifier = Modifier.size(20.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
     }
 }
 
-// ─── Suggestions dropdown (inline, inside card) ─────────────────────────────
+// ─── Suggestions dropdown ────────────────────────────────────────────────────
 
 @Composable
-private fun SuggestionsDropdown(suggestions: List<PlaceResult>, onSelect: (PlaceResult) -> Unit) {
-    HorizontalDivider(thickness = 0.5.dp)
-    LazyColumn(modifier = Modifier.heightIn(max = 200.dp)) {
-        items(suggestions) { place ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onSelect(place) }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Default.Place, contentDescription = null, tint = Blue600, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Column {
-                    Text(place.name, style = MaterialTheme.typography.bodyMedium)
-                    if (place.address.isNotBlank()) {
-                        Text(place.address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun SuggestionsDropdown(
+    suggestions: List<PlaceResult>,
+    maxHeight: Dp,
+    onSelect: (PlaceResult) -> Unit,
+) {
+    Spacer(Modifier.height(4.dp))
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = androidx.compose.foundation.BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+    ) {
+        LazyColumn(modifier = Modifier.heightIn(max = maxHeight)) {
+            itemsIndexed(suggestions, key = { index, _ -> index }) { index, place ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelect(place) }
+                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 1.dp)
+                            .size(30.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Default.Place, contentDescription = null, tint = Blue600, modifier = Modifier.size(16.dp))
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            place.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (place.address.isNotBlank()) {
+                            Text(
+                                place.address,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
+                if (index < suggestions.lastIndex)
+                    HorizontalDivider(thickness = 0.5.dp, modifier = Modifier.padding(start = 50.dp))
             }
-            HorizontalDivider(thickness = 0.5.dp)
         }
     }
+    Spacer(Modifier.height(4.dp))
+}
+
+// ─── Transit mode helpers ────────────────────────────────────────────────
+
+/** Maps an OTP mode string to the appropriate Material icon for use in trip cards. */
+private fun legTransitIcon(mode: String) = when (mode.uppercase()) {
+    "TRAM"     -> Icons.Default.Tram
+    "RAIL"     -> Icons.Default.Train
+    "SUBWAY"   -> Icons.Default.DirectionsSubway
+    "FERRY"    -> Icons.Default.DirectionsBoat
+    "MONORAIL" -> Icons.Default.Train
+    else       -> Icons.Default.DirectionsBus
+}
+
+/** Maps an OTP mode string to a brand color consistent with [TransitType.mapColor]. */
+private fun legTransitColor(mode: String): Color = when (mode.uppercase()) {
+    "BUS"      -> Color(0xFFDC2626)
+    "TRAM"     -> Color(0xFF9B2335)
+    "RAIL"     -> Color(0xFFE35205)
+    "SUBWAY"   -> Color(0xFF007C3E)
+    "FERRY"    -> Color(0xFF0369A1)
+    "MONORAIL" -> Color(0xFF5CB85C)
+    else       -> Color(0xFFDC2626)
 }
 
 // ─── Itinerary card ───────────────────────────────────────────────────────────
@@ -696,6 +956,9 @@ private fun SuggestionsDropdown(suggestions: List<PlaceResult>, onSelect: (Place
 private fun ItineraryCard(itinerary: OtpItinerary, onClick: () -> Unit) {
     val durationMin = itinerary.duration / 60
     val transitLegs = itinerary.legs.filter { it.transitLeg }
+    val walkSec = itinerary.legs.filter { !it.transitLeg }.sumOf { it.endTime - it.startTime }
+    val walkMin = (walkSec / 1000 / 60).toInt()
+    val transfers = (transitLegs.size - 1).coerceAtLeast(0)
     val fmt = SimpleDateFormat("h:mm a", Locale.getDefault())
     val startTime = fmt.format(Date(itinerary.startTime))
     val endTime = fmt.format(Date(itinerary.endTime))
@@ -779,11 +1042,12 @@ private fun ItineraryCard(itinerary: OtpItinerary, onClick: () -> Unit) {
                                 .background(MaterialTheme.colorScheme.outlineVariant),
                         )
                     }
+                    val chipColor = legTransitColor(leg.mode)
                     Surface(
                         shape = RoundedCornerShape(50),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                        color = chipColor.copy(alpha = 0.12f),
                         border = androidx.compose.foundation.BorderStroke(
-                            1.dp, MaterialTheme.colorScheme.primaryContainer,
+                            1.dp, chipColor.copy(alpha = 0.40f),
                         ),
                     ) {
                         Row(
@@ -791,18 +1055,17 @@ private fun ItineraryCard(itinerary: OtpItinerary, onClick: () -> Unit) {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
-                                if (leg.mode.contains("RAIL", ignoreCase = true)) Icons.Default.Train
-                                else Icons.Default.DirectionsBus,
+                                legTransitIcon(leg.mode),
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = chipColor,
                             )
                             Spacer(Modifier.width(3.dp))
                             Text(
                                 leg.routeShortName?.takeIf { it.isNotBlank() } ?: leg.mode,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
+                                color = chipColor,
                             )
                         }
                     }
@@ -839,6 +1102,60 @@ private fun ItineraryCard(itinerary: OtpItinerary, onClick: () -> Unit) {
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+
+            // ── Walk + transfers metadata row ─────────────────────────────
+            if (transitLegs.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                HorizontalDivider(
+                    thickness = 0.5.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (walkMin > 0) {
+                        Icon(
+                            Icons.Default.DirectionsWalk,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Text(
+                            "$walkMin min walk",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (transfers == 0) {
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Text(
+                            "Direct",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    } else {
+                        Icon(
+                            Icons.Default.SwapHoriz,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Text(
+                            "$transfers transfer${if (transfers > 1) "s" else ""}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }

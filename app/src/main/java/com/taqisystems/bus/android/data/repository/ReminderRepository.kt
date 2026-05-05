@@ -21,9 +21,9 @@ import java.util.concurrent.TimeUnit
  * The sidecar returns {"url": "/regionId/alarms/uuid"} on success.
  * That deleteUrl is stored in [ActiveReminder] so the client can cancel later.
  */
-class ReminderRepository {
+class ReminderRepository(http: OkHttpClient = OkHttpClient()) {
 
-    private val http = OkHttpClient.Builder()
+    private val http = http.newBuilder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()

@@ -2,12 +2,14 @@ package com.taqisystems.bus.android
 
 import android.app.Application
 import android.content.Context
+import android.os.Build
 import com.taqisystems.bus.android.data.AppPreferences
 import com.taqisystems.bus.android.data.repository.GeocodingRepository
 import com.taqisystems.bus.android.data.repository.ObaRepository
 import com.taqisystems.bus.android.data.repository.OtpRepository
 import com.taqisystems.bus.android.data.repository.RegionsRepository
 import com.taqisystems.bus.android.data.repository.ReminderRepository
+import okhttp3.OkHttpClient
 
 /** Simple singleton service locator (no Hilt to keep the setup minimal). */
 object ServiceLocator {
@@ -20,15 +22,43 @@ object ServiceLocator {
     lateinit var preferences: AppPreferences
     val appPreferences get() = preferences
 
+    /**
+     * Shared OkHttpClient with a User-Agent that identifies the device.
+     * Format: KelantanBus/<versionName> (Android <sdk>; <manufacturer> <model>)
+     * Example: KelantanBus/1.4.2 (Android 13; samsung SM-A715F)
+     */
+    lateinit var httpClient: OkHttpClient
+        private set
+
     fun init(context: Context) {
         application = context.applicationContext as Application
         preferences = AppPreferences(context.applicationContext)
-        regionsRepository = RegionsRepository()
 
+        val pm = context.packageManager
+        val versionName = runCatching {
+            pm.getPackageInfo(context.packageName, 0).versionName
+        }.getOrDefault("unknown")
+        val manufacturer = Build.MANUFACTURER
+        val model = Build.MODEL
+        val sdk = Build.VERSION.SDK_INT
+
+        val userAgent = "KelantanBus/$versionName (Android $sdk; $manufacturer $model)"
+
+        httpClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                chain.proceed(
+                    chain.request().newBuilder()
+                        .header("User-Agent", userAgent)
+                        .build()
+                )
+            }
+            .build()
+
+        regionsRepository = RegionsRepository(httpClient)
         obaRepository = ObaRepository()
-        otpRepository = OtpRepository()
-        geocodingRepository = GeocodingRepository()
-        reminderRepository = ReminderRepository()
+        otpRepository = OtpRepository(httpClient)
+        geocodingRepository = GeocodingRepository(httpClient)
+        reminderRepository = ReminderRepository(httpClient)
     }
 
     /** Update the active region URLs without recreating repositories. */

@@ -1,10 +1,12 @@
 package com.taqisystems.bus.android.data.repository
 
+import android.util.Log
 import com.taqisystems.bus.android.data.model.ArrivalStatus
 import com.taqisystems.bus.android.data.model.ObaArrival
 import com.taqisystems.bus.android.data.model.ObaRoute
 import com.taqisystems.bus.android.data.model.ObaStop
 import com.taqisystems.bus.android.data.model.RoutePoint
+import com.taqisystems.bus.android.data.model.TransitType
 import com.taqisystems.bus.android.data.model.TripDetails
 import com.taqisystems.bus.android.data.model.TripStop
 import kotlinx.coroutines.Dispatchers
@@ -14,6 +16,13 @@ import okhttp3.Request
 import org.json.JSONObject
 import org.onebusaway.client.okhttp.OnebusawaySdkOkHttpClientAsync
 import org.onebusaway.models.route.RouteRetrieveParams
+import org.onebusaway.models.routesforlocation.RoutesForLocationListParams
+import org.onebusaway.models.stop.StopRetrieveParams
+import org.onebusaway.models.stopsforlocation.StopsForLocationListParams
+import org.onebusaway.models.trip.TripRetrieveParams
+import org.onebusaway.models.arrivalanddeparture.ArrivalAndDepartureListParams
+import org.onebusaway.models.tripdetails.TripDetailRetrieveParams
+import org.onebusaway.models.tripsforroute.TripsForRouteListParams
 
 /**
  * Repository wrapping the official OneBusAway **Kotlin** SDK
@@ -34,8 +43,8 @@ class ObaRepository(
         .baseUrl(baseUrl)
         .build()
 
-    // Plain OkHttp for raw endpoints (shape polyline) not covered by the SDK
-    private val http = OkHttpClient()
+    // Plain OkHttp for raw endpoints not covered by the SDK
+    private val http = com.taqisystems.bus.android.ServiceLocator.httpClient
 
     // Keep the current baseUrl/apiKey for raw requests
     private var baseUrl = baseUrl
@@ -58,24 +67,29 @@ class ObaRepository(
         radius: Int = 2000,
     ): List<ObaStop> = withContext(Dispatchers.IO) {
         runCatching {
-            val url = "$baseUrl/api/where/stops-for-location.json?key=$apiKey&lat=$lat&lon=$lon&radius=$radius"
-            val body = http.newCall(Request.Builder().url(url).build())
-                .execute().body?.string() ?: return@runCatching emptyList()
-            val root = JSONObject(body)
-            val list = root.optJSONObject("data")?.optJSONArray("list") ?: return@runCatching emptyList()
-            (0 until list.length()).map { i ->
-                val s = list.getJSONObject(i)
-                val routeIds = s.optJSONArray("routeIds")?.let { arr ->
-                    (0 until arr.length()).map { arr.getString(it) }
-                } ?: emptyList()
+            val params = StopsForLocationListParams.builder()
+                .lat(lat)
+                .lon(lon)
+                .radius(radius.toDouble())
+                .build()
+            val resp = client.stopsForLocation().list(params)
+            val data = resp.data()
+
+            // Build routeId → GTFS type map from references (zero extra API calls).
+            val routeTypeMap = data.references().routes().associate { r -> r.id() to r.type().toInt() }
+
+            data.list().map { s ->
+                val routeIds = s.routeIds()
+                val gtfsTypes = routeIds.mapNotNull { routeTypeMap[it] }.toSet()
                 ObaStop(
-                    id = s.getString("id"),
-                    name = s.getString("name"),
-                    lat = s.getDouble("lat"),
-                    lon = s.getDouble("lon"),
-                    code = s.optString("code", ""),
-                    direction = s.optString("direction", ""),
-                    routeIds = routeIds,
+                    id        = s.id(),
+                    name      = s.name(),
+                    lat       = s.lat(),
+                    lon       = s.lon(),
+                    code      = s.code() ?: "",
+                    direction = s.direction() ?: "",
+                    routeIds  = routeIds,
+                    transitType = TransitType.fromGtfsTypes(gtfsTypes),
                 )
             }
         }.getOrElse { emptyList() }
@@ -83,36 +97,46 @@ class ObaRepository(
 
     // ─── Arrivals ────────────────────────────────────────────────────────────
 
+    /** Returns an [ObaStop] with lat/lon populated from the stop endpoint. */
+    suspend fun getStopLocation(stopId: String): ObaStop? = withContext(Dispatchers.IO) {
+        runCatching {
+            val params = StopRetrieveParams.builder().stopId(stopId).build()
+            val entry = client.stop().retrieve(params).data().entry()
+            ObaStop(
+                id        = entry.id(),
+                name      = entry.name(),
+                lat       = entry.lat(),
+                lon       = entry.lon(),
+                code      = entry.code() ?: "",
+                direction = entry.direction() ?: "",
+            ).takeIf { it.lat != 0.0 || it.lon != 0.0 }
+        }.getOrNull()
+    }
+
     suspend fun getArrivalsForStop(stopId: String): List<ObaArrival> = withContext(Dispatchers.IO) {
         runCatching {
-            val url = "$baseUrl/api/where/arrivals-and-departures-for-stop/$stopId.json?key=$apiKey&minutesAfter=360"
-            val body = http.newCall(Request.Builder().url(url).build())
-                .execute().body?.string() ?: return@runCatching emptyList()
-            val root = JSONObject(body)
-            val entry = root.optJSONObject("data")?.optJSONObject("entry") ?: return@runCatching emptyList()
-            val arr = entry.optJSONArray("arrivalsAndDepartures") ?: return@runCatching emptyList()
+            val params = ArrivalAndDepartureListParams.builder()
+                .stopId(stopId)
+                .minutesAfter(360L)
+                .build()
+            val resp = client.arrivalAndDeparture().list(params)
+            val arrivals = resp.data().entry().arrivalsAndDepartures()
             val now = System.currentTimeMillis()
 
-            (0 until arr.length()).map { i ->
-                val e = arr.getJSONObject(i)
-                val scheduledMs = e.optLong("scheduledArrivalTime", 0L)
-                val predictedMs = e.optLong("predictedArrivalTime", 0L)
+            // Build routeId → TransitType from references
+            val routeTypeMap = resp.data().references().routes()
+                .associate { it.id() to TransitType.fromGtfsType(it.type().toInt()) }
+
+            arrivals.map { e ->
+                val scheduledMs = e.scheduledArrivalTime()
+                val predictedMs = e.predictedArrivalTime()
                 val effectiveMs = if (predictedMs > 0) predictedMs else scheduledMs
                 val minutesUntil = ((effectiveMs - now) / 60_000).toInt()
                 val isPredicted = predictedMs > 0
 
-                // Headway (frequency-based) trips — frequencyType == 1
-                val frequencyType = e.optInt("frequencyType", 0)
-                val frequencyObj = e.optJSONObject("frequency")
-                val headwaySecs = frequencyObj?.let {
-                    val hw = it.optInt("headway", 0)
-                    if (hw > 0) hw else null
-                }
-                val headwayEndTime = frequencyObj?.let {
-                    val et = it.optLong("endTime", 0L)
-                    if (et > 0) et else null
-                }
-                val isHeadway = frequencyType == 1 || headwaySecs != null
+                // frequency() is String? — non-null signals a headway trip
+                // headwaySecs / headwayEndTime unavailable from opaque string
+                val isHeadway = e.frequency() != null
 
                 val status = when {
                     !isPredicted -> ArrivalStatus.SCHEDULED
@@ -120,31 +144,31 @@ class ObaRepository(
                     predictedMs - scheduledMs < -60_000 -> ArrivalStatus.EARLY
                     else -> ArrivalStatus.ON_TIME
                 }
-                val tripStatus = e.optJSONObject("tripStatus")
-                val position = tripStatus?.optJSONObject("position")
+                val ts = e.tripStatus()
                 ObaArrival(
-                    routeId = e.optString("routeId", ""),
-                    routeShortName = e.optString("routeShortName", "").ifEmpty { e.optString("routeId", "") },
-                    routeLongName = e.optString("routeLongName", ""),
-                    tripId = e.optString("tripId", ""),
-                    tripHeadsign = e.optString("tripHeadsign", ""),
+                    routeId = e.routeId(),
+                    routeShortName = e.routeShortName()?.takeIf { it.isNotEmpty() } ?: e.routeId(),
+                    routeLongName = e.routeLongName() ?: "",
+                    tripId = e.tripId(),
+                    tripHeadsign = e.tripHeadsign(),
                     predictedArrivalTime = predictedMs,
                     scheduledArrivalTime = scheduledMs,
                     predicted = isPredicted,
                     status = status,
                     minutesUntilArrival = minutesUntil,
                     deviationMinutes = ((predictedMs - scheduledMs) / 60_000).toInt(),
-                    vehicleId = e.optString("vehicleId", ""),
-                    vehicleLat = position?.optDouble("lat"),
-                    vehicleLon = position?.optDouble("lon"),
-                    vehicleOrientation = tripStatus?.optDouble("orientation"),
-                    vehicleLastUpdateTime = tripStatus?.optLong("lastLocationUpdateTime"),
+                    vehicleId = e.vehicleId(),
+                    vehicleLat = ts?.position()?.lat(),
+                    vehicleLon = ts?.position()?.lon(),
+                    vehicleOrientation = ts?.orientation(),
+                    vehicleLastUpdateTime = ts?.lastLocationUpdateTime(),
                     shapeId = null,
                     isHeadway = isHeadway,
-                    headwaySecs = headwaySecs,
-                    headwayEndTime = headwayEndTime,
-                    serviceDate = e.optLong("serviceDate", 0L),
-                    stopSequence = e.optInt("stopSequence", 0),
+                    headwaySecs = null,
+                    headwayEndTime = null,
+                    serviceDate = e.serviceDate(),
+                    stopSequence = e.stopSequence().toInt(),
+                    transitType = routeTypeMap[e.routeId()] ?: TransitType.BUS,
                 )
             }
         }.getOrElse { emptyList() }
@@ -159,26 +183,23 @@ class ObaRepository(
         radius: Int = 50_000,
     ): List<ObaRoute> = withContext(Dispatchers.IO) {
         runCatching {
-            val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-            val url = "$baseUrl/api/where/routes-for-location.json" +
-                "?key=$apiKey&lat=$lat&lon=$lon&radius=$radius" +
-                "&query=$encodedQuery"
-            val body = http.newCall(Request.Builder().url(url).build())
-                .execute().body?.string() ?: return@runCatching emptyList()
-            val list = JSONObject(body)
-                .optJSONObject("data")?.optJSONArray("list") ?: return@runCatching emptyList()
-            (0 until list.length()).map { i ->
-                val r = list.getJSONObject(i)
+            val params = RoutesForLocationListParams.builder()
+                .lat(lat)
+                .lon(lon)
+                .radius(radius.toDouble())
+                .apply { if (query.isNotBlank()) query(query) }
+                .build()
+            client.routesForLocation().list(params).data().list().map { r ->
                 ObaRoute(
-                    id          = r.optString("id", ""),
-                    shortName   = r.optString("shortName", ""),
-                    longName    = r.optString("longName", ""),
-                    description = r.optString("description", ""),
-                    agencyId    = r.optString("agencyId", ""),
-                    color       = r.optString("color", null),
-                    textColor   = r.optString("textColor", null),
-                    url         = r.optString("url", null),
-                    type        = r.optInt("type", 3),
+                    id          = r.id(),
+                    shortName   = r.shortName() ?: r.nullSafeShortName() ?: "",
+                    longName    = r.longName() ?: "",
+                    description = r.description() ?: "",
+                    agencyId    = r.agencyId(),
+                    color       = r.color(),
+                    textColor   = r.textColor(),
+                    url         = r.url(),
+                    type        = r.type().toInt(),
                 )
             }
         }.getOrElse { emptyList() }
@@ -204,75 +225,50 @@ class ObaRepository(
 
     suspend fun getTripDetails(tripId: String): TripDetails? = withContext(Dispatchers.IO) {
         runCatching {
-            val url = "$baseUrl/api/where/trip-details/$tripId.json" +
-                "?key=$apiKey&includeSchedule=true&includeStatus=true&includeTrip=true"
-            val body = http.newCall(Request.Builder().url(url).build())
-                .execute().body?.string() ?: return@runCatching null
-            val root = JSONObject(body)
-            val entry = root.optJSONObject("data")?.optJSONObject("entry")
-                ?: return@runCatching null
+            val params = TripDetailRetrieveParams.builder().tripId(tripId).build()
+            val resp = client.tripDetails().retrieve(params)
+            val entry = resp.data().entry()
+            val refs  = resp.data().references()
 
             // Schedule stop times
-            val schedule = entry.optJSONObject("schedule")
-            val stopTimesArr = schedule?.optJSONArray("stopTimes")
-            val stopTimes = if (stopTimesArr != null) {
-                (0 until stopTimesArr.length()).map { i ->
-                    val st = stopTimesArr.getJSONObject(i)
-                    TripStop(
-                        stopId = st.optString("stopId", ""),
-                        stopName = st.optString("stopId", ""), // resolved below from references
-                        arrivalTime = st.optInt("arrivalTime", 0),
-                        departureTime = st.optInt("departureTime", 0),
-                    )
-                }
-            } else emptyList()
+            val stopTimes = entry.schedule()?.stopTimes()?.mapNotNull { st ->
+                val sid = st.stopId() ?: return@mapNotNull null
+                TripStop(
+                    stopId        = sid,
+                    stopName      = sid, // resolved below from references
+                    arrivalTime   = st.arrivalTime()?.toInt() ?: 0,
+                    departureTime = st.departureTime()?.toInt() ?: 0,
+                )
+            } ?: emptyList()
 
             // Stop name lookup from references
-            val refs = root.optJSONObject("data")?.optJSONObject("references")
-            val stopsRef = refs?.optJSONArray("stops")
-            val stopNameMap = mutableMapOf<String, String>()
-            if (stopsRef != null) {
-                for (i in 0 until stopsRef.length()) {
-                    val s = stopsRef.getJSONObject(i)
-                    stopNameMap[s.optString("id", "")] = s.optString("name", "")
-                }
-            }
+            val stopNameMap = refs.stops().associate { it.id() to it.name() }
             val namedStopTimes = stopTimes.map { st ->
                 st.copy(stopName = stopNameMap[st.stopId]?.takeIf { it.isNotEmpty() } ?: st.stopId)
             }
 
             // Trip headsign from references
-            val tripsRef = refs?.optJSONArray("trips")
-            var headsign = ""
-            if (tripsRef != null) {
-                for (i in 0 until tripsRef.length()) {
-                    val t = tripsRef.getJSONObject(i)
-                    if (t.optString("id", "") == tripId) {
-                        headsign = t.optString("tripHeadsign", "")
-                        break
-                    }
-                }
-            }
+            val headsign = refs.trips().firstOrNull { it.id() == tripId }?.tripHeadsign() ?: ""
 
-            val status = entry.optJSONObject("status")
+            val status = entry.status()
             TripDetails(
-                tripId = entry.optString("tripId", tripId),
-                headsign = headsign,
-                stops = namedStopTimes,
-                closestStopId = status?.optString("closestStop"),
-                nextStopId = status?.optString("nextStop"),
-                distanceAlongTrip = status?.optDouble("distanceAlongTrip") ?: 0.0,
-                totalDistance = status?.optDouble("totalDistanceAlongTrip") ?: 0.0,
-                scheduleDeviation = status?.optDouble("scheduleDeviation") ?: 0.0,
-                predicted = status?.optBoolean("predicted") ?: false,
-                vehicleId = status?.optString("vehicleId")?.takeIf { it.isNotEmpty() },
+                tripId            = entry.tripId(),
+                headsign          = headsign,
+                stops             = namedStopTimes,
+                closestStopId     = status?.closestStop()?.takeIf { it.isNotEmpty() },
+                nextStopId        = status?.nextStop(),
+                distanceAlongTrip = status?.distanceAlongTrip() ?: 0.0,
+                totalDistance     = status?.totalDistanceAlongTrip() ?: 0.0,
+                scheduleDeviation = status?.scheduleDeviation()?.toDouble() ?: 0.0,
+                predicted         = status?.predicted() ?: false,
+                vehicleId         = status?.vehicleId()?.takeIf { it.isNotEmpty() },
             )
         }.onFailure { e ->
-            android.util.Log.e("ObaRepository", "getTripDetails failed for tripId=$tripId", e)
+            Log.e("ObaRepository", "getTripDetails failed for tripId=$tripId", e)
         }.getOrNull()
     }
 
-    // ─── Shape (polyline) — raw HTTP, not in SDK ──────────────────────────────
+    // ─── Shape (polyline) ─────────────────────────────────────────────────────
     /**
      * Returns live vehicle positions for every active trip on [routeId].
      * Uses trips-for-route with includeStatus=true to get real-time positions
@@ -281,55 +277,50 @@ class ObaRepository(
     suspend fun getVehiclesForRoute(routeId: String): List<ObaArrival> =
         withContext(Dispatchers.IO) {
             runCatching {
-                val url = "$baseUrl/api/where/trips-for-route/$routeId.json" +
-                    "?key=$apiKey&includeSchedule=false&includeStatus=true"
-                val body = http.newCall(Request.Builder().url(url).build())
-                    .execute().body?.string() ?: return@runCatching emptyList()
-                val root = JSONObject(body)
-                val list = root.optJSONObject("data")?.optJSONArray("list")
-                    ?: return@runCatching emptyList()
+                val params = TripsForRouteListParams.builder()
+                    .routeId(routeId)
+                    .includeSchedule(false)
+                    .includeStatus(true)
+                    .build()
+                val resp = client.tripsForRoute().list(params)
+                val refs = resp.data().references()
 
-                // References for route short/long names
-                val refs = root.optJSONObject("data")?.optJSONObject("references")
-                val routeRefs = refs?.optJSONArray("routes")
+                // References: routeId → shortName / longName / TransitType
                 val routeShortNameMap = mutableMapOf<String, String>()
                 val routeLongNameMap  = mutableMapOf<String, String>()
-                if (routeRefs != null) {
-                    for (i in 0 until routeRefs.length()) {
-                        val r = routeRefs.getJSONObject(i)
-                        routeShortNameMap[r.optString("id", "")] = r.optString("shortName", "")
-                        routeLongNameMap [r.optString("id", "")] = r.optString("longName",  "")
-                    }
-                }
-                val tripsRef = refs?.optJSONArray("trips")
-                val headsignMap = mutableMapOf<String, String>()
-                if (tripsRef != null) {
-                    for (i in 0 until tripsRef.length()) {
-                        val t = tripsRef.getJSONObject(i)
-                        headsignMap[t.optString("id", "")] = t.optString("tripHeadsign", "")
-                    }
+                val routeTypeMap      = mutableMapOf<String, TransitType>()
+                refs.routes().forEach { r ->
+                    routeShortNameMap[r.id()] = r.shortName() ?: r.nullSafeShortName() ?: ""
+                    routeLongNameMap [r.id()] = r.longName() ?: ""
+                    routeTypeMap     [r.id()] = TransitType.fromGtfsType(r.type().toInt())
                 }
 
-                val now = System.currentTimeMillis()
-                (0 until list.length()).mapNotNull { i ->
-                    val entry   = list.getJSONObject(i)
-                    val tripId  = entry.optString("id", "")
-                    val status  = entry.optJSONObject("status") ?: return@mapNotNull null
-                    val position = status.optJSONObject("position")
-                    val vLat = position?.optDouble("lat")
-                    val vLon = position?.optDouble("lon")
+                // References: tripId → headsign + routeId
+                val headsignMap = mutableMapOf<String, String>()
+                val tripRouteMap = mutableMapOf<String, String>()
+                refs.trips().forEach { t ->
+                    headsignMap [t.id()] = t.tripHeadsign() ?: ""
+                    tripRouteMap[t.id()] = t.routeId()
+                }
+
+                resp.data().list().mapNotNull { item ->
+                    val tripId = item.tripId()
+                    val status = item.status() ?: return@mapNotNull null
+                    val position = status.position()
+                    val vLat = position?.lat()
+                    val vLon = position?.lon()
                     // Skip trips with no live position
-                    if (vLat == null || vLon == null || vLat == 0.0 && vLon == 0.0)
+                    if (vLat == null || vLon == null || (vLat == 0.0 && vLon == 0.0))
                         return@mapNotNull null
-                    val predicted   = status.optBoolean("predicted", false)
-                    val devSec      = status.optDouble("scheduleDeviation", 0.0)
+                    val predicted  = status.predicted()
+                    val devSec     = status.scheduleDeviation().toDouble()
                     val arrivalStatus = when {
-                        !predicted       -> ArrivalStatus.SCHEDULED
-                        devSec >  60.0   -> ArrivalStatus.DELAYED
-                        devSec < -60.0   -> ArrivalStatus.EARLY
-                        else             -> ArrivalStatus.ON_TIME
+                        !predicted     -> ArrivalStatus.SCHEDULED
+                        devSec >  60.0 -> ArrivalStatus.DELAYED
+                        devSec < -60.0 -> ArrivalStatus.EARLY
+                        else           -> ArrivalStatus.ON_TIME
                     }
-                    val rId = entry.optString("routeId", routeId)
+                    val rId = tripRouteMap[tripId] ?: routeId
                     ObaArrival(
                         routeId              = rId,
                         routeShortName       = routeShortNameMap[rId]?.ifEmpty { rId } ?: rId,
@@ -342,13 +333,14 @@ class ObaRepository(
                         status               = arrivalStatus,
                         minutesUntilArrival  = 0,
                         deviationMinutes     = (devSec / 60.0).toInt(),
-                        vehicleId            = status.optString("vehicleId", "").ifEmpty { tripId },
+                        vehicleId            = status.vehicleId()?.ifEmpty { tripId } ?: tripId,
                         vehicleLat           = vLat,
                         vehicleLon           = vLon,
-                        vehicleOrientation   = status.optDouble("orientation"),
-                        vehicleLastUpdateTime = status.optLong("lastLocationUpdateTime")
+                        vehicleOrientation   = status.orientation(),
+                        vehicleLastUpdateTime = status.lastLocationUpdateTime()
                             .takeIf { it > 0L },
                         shapeId              = null,
+                        transitType          = routeTypeMap[rId] ?: TransitType.BUS,
                     )
                 }
             }.getOrElse { emptyList() }
@@ -361,13 +353,40 @@ class ObaRepository(
     suspend fun getShapeForRoute(routeId: String): List<RoutePoint> =
         withContext(Dispatchers.IO) {
             runCatching {
-                val url = "$baseUrl/api/where/trips-for-route/$routeId.json?key=$apiKey&includeSchedule=false&includeStatus=false"
+                // stops-for-route includes encoded polylines directly — no trip lookup needed
+                val url = "$baseUrl/api/where/stops-for-route/$routeId.json?key=$apiKey&includePolylines=true"
+                Log.d("ObaRepo", "getShapeForRoute: fetching $url")
                 val body = http.newCall(Request.Builder().url(url).build())
-                    .execute().body?.string() ?: return@runCatching emptyList()
-                val data = JSONObject(body).optJSONObject("data")
-                    ?: return@runCatching emptyList()
+                    .execute().body?.string() ?: run {
+                        Log.e("ObaRepo", "getShapeForRoute: empty response body")
+                        return@runCatching emptyList()
+                    }
+                val polylines = JSONObject(body)
+                    .optJSONObject("data")
+                    ?.optJSONObject("entry")
+                    ?.optJSONArray("polylines")
+                if (polylines != null && polylines.length() > 0) {
+                    // Pick the longest segment (main direction) — avoids drawing both
+                    // outbound + inbound and the straight connector line between them
+                    var best = emptyList<RoutePoint>()
+                    for (i in 0 until polylines.length()) {
+                        val encoded = polylines.getJSONObject(i).optString("points", "")
+                        if (encoded.isNotEmpty()) {
+                            val pts = decodePolyline(encoded)
+                            if (pts.size > best.size) best = pts
+                        }
+                    }
+                    Log.d("ObaRepo", "getShapeForRoute: best segment has ${best.size} points of ${polylines.length()} total segments")
+                    return@runCatching best
+                }
 
-                // shapeId lives in data.references.trips[0].shapeId — use it directly
+                // Fallback: trips-for-route → shapeId
+                Log.w("ObaRepo", "getShapeForRoute: no polylines in stops-for-route, trying trips-for-route")
+                val tripsUrl = "$baseUrl/api/where/trips-for-route/$routeId.json?key=$apiKey&includeSchedule=false&includeStatus=false"
+                val tripsBody = http.newCall(Request.Builder().url(tripsUrl).build())
+                    .execute().body?.string() ?: return@runCatching emptyList()
+                val data = JSONObject(tripsBody).optJSONObject("data") ?: return@runCatching emptyList()
+
                 val shapeId = data
                     .optJSONObject("references")
                     ?.optJSONArray("trips")
@@ -375,50 +394,69 @@ class ObaRepository(
                     ?.getJSONObject(0)
                     ?.optString("shapeId", "")
                     ?.takeIf { it.isNotEmpty() }
-
                 if (shapeId != null) {
+                    Log.d("ObaRepo", "getShapeForRoute: fallback shapeId=$shapeId")
                     return@runCatching getRouteShape(shapeId)
                 }
 
-                // Fallback: use tripId from list[0] → trip endpoint → shapeId
                 val tripId = data.optJSONArray("list")
                     ?.takeIf { it.length() > 0 }
                     ?.getJSONObject(0)
                     ?.optString("tripId", "")
                     ?.takeIf { it.isNotEmpty() }
-                    ?: return@runCatching emptyList()
+                    ?: run {
+                        Log.e("ObaRepo", "getShapeForRoute: no tripId in list either")
+                        return@runCatching emptyList()
+                    }
+                Log.d("ObaRepo", "getShapeForRoute: fallback tripId=$tripId")
                 getShapeForTrip(tripId)
-            }.getOrElse { emptyList() }
+            }.getOrElse { e ->
+                Log.e("ObaRepo", "getShapeForRoute exception: ${e.message}", e)
+                emptyList()
+            }
         }
     /** Resolves the shapeId for a trip then returns the decoded polyline. */
     suspend fun getShapeForTrip(tripId: String): List<RoutePoint> =
         withContext(Dispatchers.IO) {
             runCatching {
-                val tripUrl = "$baseUrl/api/where/trip/$tripId.json?key=$apiKey"
-                val tripBody = http.newCall(Request.Builder().url(tripUrl).build())
-                    .execute().body?.string() ?: return@runCatching emptyList()
-                val shapeId = JSONObject(tripBody)
-                    .optJSONObject("data")
-                    ?.optJSONObject("entry")
-                    ?.optString("shapeId", "")
-                    ?.takeIf { it.isNotEmpty() } ?: return@runCatching emptyList()
+                Log.d("ObaRepo", "getShapeForTrip: fetching trip $tripId via SDK")
+                val params = TripRetrieveParams.builder().tripId(tripId).build()
+                val shapeId = client.trip().retrieve(params).data().entry().shapeId()
+                    ?: run {
+                        Log.e("ObaRepo", "getShapeForTrip: no shapeId for tripId=$tripId")
+                        return@runCatching emptyList()
+                    }
+                Log.d("ObaRepo", "getShapeForTrip: shapeId=$shapeId")
                 getRouteShape(shapeId)
-            }.getOrElse { emptyList() }
+            }.getOrElse { e ->
+                Log.e("ObaRepo", "getShapeForTrip exception: ${e.message}", e)
+                emptyList()
+            }
         }
 
     suspend fun getRouteShape(shapeId: String): List<RoutePoint> =
         withContext(Dispatchers.IO) {
             runCatching {
-                val url = "$baseUrl/api/where/shape/${shapeId}.json?key=$apiKey"
-                val body = http.newCall(Request.Builder().url(url).build())
-                    .execute().body?.string() ?: return@runCatching emptyList()
-                val points = JSONObject(body)
-                    .optJSONObject("data")
-                    ?.optJSONObject("entry")
-                    ?.optString("points", "") ?: ""
+                val points = client.shape().retrieve(shapeId).data().entry().points()
+                Log.d("ObaRepo", "getRouteShape: decoded ${points.length} chars -> ${decodePolyline(points).size} points")
                 decodePolyline(points)
-            }.getOrElse { emptyList() }
+            }.getOrElse { e ->
+                Log.e("ObaRepo", "getRouteShape exception: ${e.message}", e)
+                emptyList()
+            }
         }
+
+    /**
+     * Downloads raw text from [url] using the shared OkHttpClient.
+     * Used by HomeViewModel to fetch the sidecar-served route shapes GeoJSON.
+     */
+    suspend fun downloadText(url: String): String = withContext(Dispatchers.IO) {
+        val req = Request.Builder().url(url).build()
+        http.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) error("HTTP ${resp.code} for $url")
+            resp.body?.string() ?: ""
+        }
+    }
 
     companion object {
         const val DEFAULT_BASE_URL = "https://api.kelantanbus.com"

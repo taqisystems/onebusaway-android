@@ -9,7 +9,66 @@ data class InboxNotification(
     val isRead: Boolean = false,
     /** Internal nav route to navigate to when the user taps this notification, e.g. "stop/12345" */
     val deepLink: String? = null,
+    /** System notification ID passed to NotificationManagerCompat.notify(); 0 = unknown/old entry */
+    val systemNotifId: Int = 0,
 )
+
+// ─── Transit Type ───────────────────────────────────────────────────────────
+/**
+ * Categories of transit mode inferred from GTFS route type integers.
+ *
+ * Each entry carries a [mapColor] used for stop markers on the map.
+ * To adapt for a different country / agency brand, change only these
+ * 7 hex values — all logic elsewhere is country-agnostic.
+ */
+enum class TransitType(val mapColor: Int) {
+    /** GTFS type 3 – regular bus (also default fallback) */
+    BUS          (0xFFDC2626.toInt()),  // red
+    /** GTFS type 0 – light rail / LRT / tram */
+    LRT_TRAM     (0xFF9B2335.toInt()),  // ruby
+    /** GTFS type 1 – rapid transit / MRT / metro / subway */
+    MRT_METRO    (0xFF007C3E.toInt()),  // green
+    /** GTFS type 2 – commuter / intercity rail */
+    COMMUTER_RAIL(0xFFE35205.toInt()),  // orange
+    /** GTFS type 4 – ferry */
+    FERRY        (0xFF0369A1.toInt()),  // ocean blue
+    /** GTFS type 11 – monorail */
+    MONORAIL     (0xFF5CB85C.toInt()),  // light green
+    /** Stop served by multiple different non-bus modes */
+    MIXED        (0xFF7C3AED.toInt()),  // purple
+    ;
+
+    companion object {
+        /** Maps a single GTFS route [type] integer to the corresponding [TransitType]. */
+        fun fromGtfsType(type: Int): TransitType = when (type) {
+            0    -> LRT_TRAM
+            1    -> MRT_METRO
+            2    -> COMMUTER_RAIL
+            4    -> FERRY
+            11   -> MONORAIL
+            else -> BUS
+        }
+
+        /**
+         * Given the full set of GTFS types for a stop (one per route serving it),
+         * returns the most prominent [TransitType].
+         *
+         * Rules:
+         * - All bus-only → [BUS]
+         * - Exactly one non-bus mode → that mode
+         * - Multiple different non-bus modes → [MIXED]
+         */
+        fun fromGtfsTypes(types: Set<Int>): TransitType {
+            val modes = types.map { fromGtfsType(it) }.toSet()
+            val nonBus = modes.filter { it != BUS }.toSet()
+            return when {
+                nonBus.isEmpty() -> BUS
+                nonBus.size == 1 -> nonBus.first()
+                else             -> MIXED
+            }
+        }
+    }
+}
 
 // ─── OBA Stop ────────────────────────────────────────────────────────────────
 data class ObaStop(
@@ -20,6 +79,8 @@ data class ObaStop(
     val code: String = "",
     val direction: String = "",
     val routeIds: List<String> = emptyList(),
+    /** Transit mode inferred from the GTFS types of all routes serving this stop. */
+    val transitType: TransitType = TransitType.BUS,
 )
 
 // ─── OBA Arrival ─────────────────────────────────────────────────────────────
@@ -51,7 +112,18 @@ data class ObaArrival(
     val serviceDate: Long = 0L,
     /** Position of this stop in the trip's stop sequence. Required for sidecar reminder. */
     val stopSequence: Int = 0,
-)
+    /** Transit mode inferred from the GTFS route type of this arrival's route. */
+    val transitType: TransitType = TransitType.BUS,
+) {
+    /**
+     * Recalculates minutes-until-arrival from the stored timestamps at the moment of calling,
+     * so the value stays accurate after the phone wakes from sleep without a fresh API fetch.
+     */
+    fun liveMinutesUntilArrival(): Int {
+        val effectiveMs = if (predictedArrivalTime > 0) predictedArrivalTime else scheduledArrivalTime
+        return ((effectiveMs - System.currentTimeMillis()) / 60_000).toInt()
+    }
+}
 
 enum class ArrivalStatus { ON_TIME, DELAYED, EARLY, SCHEDULED, UNKNOWN }
 
@@ -198,10 +270,24 @@ data class ActiveReminder(
     val minutesBefore: Int,
     /** Sidecar base URL — needed to build the absolute DELETE endpoint. */
     val sidecarBaseUrl: String,
+    // ── Display fields (populated when reminder is set) ──────────────────────
+    val routeShortName: String = "",
+    val headsign: String = "",
+    val stopName: String = "",
+    /** Epoch ms of the scheduled/predicted arrival this reminder is for. 0 if unknown. */
+    val arrivalEpochMs: Long = 0L,
+    /** OBA stop ID — used to deep-link back to the stop on the map. */
+    val stopId: String = "",
+    /** Stop coordinates — used to fly the camera without a second network call. */
+    val stopLat: Double = 0.0,
+    val stopLon: Double = 0.0,
 )
 
 // ─── Route Shape ─────────────────────────────────────────────────────────────
 data class RoutePoint(val lat: Double, val lon: Double)
+
+/** A single bus route's polyline together with its display name. */
+data class OverviewRoute(val shortName: String, val points: List<RoutePoint>)
 
 // ─── Saved Stop ───────────────────────────────────────────────────────────────
 data class SavedStop(

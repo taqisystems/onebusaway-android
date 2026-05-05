@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -14,6 +15,7 @@ import com.taqisystems.bus.android.data.model.SavedStop
 import com.taqisystems.bus.android.data.model.InboxNotification
 import com.taqisystems.bus.android.data.model.ActiveReminder
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore by preferencesDataStore(name = "kelantanbus_prefs")
@@ -34,17 +36,20 @@ class AppPreferences(private val context: Context) {
         val ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
         val NOTIFICATIONS = stringPreferencesKey("inbox_notifications_json")
         val ACTIVE_REMINDERS = stringPreferencesKey("active_reminders_json")
+        val LAST_REMINDER_MINUTES = intPreferencesKey("last_reminder_minutes")
+        /** Map<stopId, List<SavedRoute>> — routes known to serve each stop. */
+        val ROUTES_BY_STOP = stringPreferencesKey("routes_by_stop_json")
     }
 
-    val regionId: Flow<String?> = context.dataStore.data.map { it[Keys.REGION_ID] }
-    val obaBaseUrl: Flow<String?> = context.dataStore.data.map { it[Keys.OBA_BASE_URL] }
-    val otpBaseUrl: Flow<String?> = context.dataStore.data.map { it[Keys.OTP_BASE_URL] }
+    val regionId: Flow<String?> = context.dataStore.data.map { it[Keys.REGION_ID] }.distinctUntilChanged()
+    val obaBaseUrl: Flow<String?> = context.dataStore.data.map { it[Keys.OBA_BASE_URL] }.distinctUntilChanged()
+    val otpBaseUrl: Flow<String?> = context.dataStore.data.map { it[Keys.OTP_BASE_URL] }.distinctUntilChanged()
     /** Base URL of the arrival-reminder sidecar. Null when the current region has no sidecar. */
-    val sidecarBaseUrl: Flow<String?> = context.dataStore.data.map { it[Keys.SIDECAR_BASE_URL] }
-    val autoDetectRegion: Flow<Boolean> = context.dataStore.data.map { it[Keys.AUTO_DETECT_REGION] ?: true }
-    val regionCenterLat: Flow<Double?> = context.dataStore.data.map { it[Keys.REGION_CENTER_LAT] }
-    val regionCenterLon: Flow<Double?> = context.dataStore.data.map { it[Keys.REGION_CENTER_LON] }
-    val onboardingComplete: Flow<Boolean> = context.dataStore.data.map { it[Keys.ONBOARDING_COMPLETE] ?: false }
+    val sidecarBaseUrl: Flow<String?> = context.dataStore.data.map { it[Keys.SIDECAR_BASE_URL] }.distinctUntilChanged()
+    val autoDetectRegion: Flow<Boolean> = context.dataStore.data.map { it[Keys.AUTO_DETECT_REGION] ?: true }.distinctUntilChanged()
+    val regionCenterLat: Flow<Double?> = context.dataStore.data.map { it[Keys.REGION_CENTER_LAT] }.distinctUntilChanged()
+    val regionCenterLon: Flow<Double?> = context.dataStore.data.map { it[Keys.REGION_CENTER_LON] }.distinctUntilChanged()
+    val onboardingComplete: Flow<Boolean> = context.dataStore.data.map { it[Keys.ONBOARDING_COMPLETE] ?: false }.distinctUntilChanged()
 
     val notifications: Flow<List<InboxNotification>> = context.dataStore.data.map { prefs ->
         val json = prefs[Keys.NOTIFICATIONS] ?: return@map emptyList()
@@ -55,6 +60,9 @@ class AppPreferences(private val context: Context) {
     }
 
     val unreadNotificationCount: Flow<Int> = notifications.map { list -> list.count { !it.isRead } }
+
+    /** The last reminder time (in minutes) the user selected. Defaults to 5. */
+    val lastReminderMinutes: Flow<Int> = context.dataStore.data.map { it[Keys.LAST_REMINDER_MINUTES] ?: 5 }.distinctUntilChanged()
 
     val activeReminders: Flow<List<ActiveReminder>> = context.dataStore.data.map { prefs ->
         val json = prefs[Keys.ACTIVE_REMINDERS] ?: return@map emptyList()
@@ -76,6 +84,18 @@ class AppPreferences(private val context: Context) {
             gson.fromJson<List<SavedRoute>>(json, object : TypeToken<List<SavedRoute>>() {}.type)
         }.getOrElse { emptyList() }
     }
+
+    /** Returns the routes known to serve [stopId], populated from previous arrival loads. */
+    fun cachedRoutesForStop(stopId: String): Flow<List<SavedRoute>> =
+        context.dataStore.data.map { prefs ->
+            val json = prefs[Keys.ROUTES_BY_STOP] ?: return@map emptyList()
+            val map = runCatching {
+                gson.fromJson<Map<String, List<SavedRoute>>>(
+                    json, object : TypeToken<Map<String, List<SavedRoute>>>() {}.type
+                )
+            }.getOrElse { emptyMap() }
+            map[stopId] ?: emptyList()
+        }
 
     suspend fun setRegionId(id: String) {
         context.dataStore.edit { it[Keys.REGION_ID] = id }
@@ -221,4 +241,24 @@ class AppPreferences(private val context: Context) {
             prefs[Keys.ACTIVE_REMINDERS] = gson.toJson(current.filter { it.tripId != tripId })
         }
     }
+
+    /** Persist the last reminder time selection so it is pre-selected next time. */
+    suspend fun setLastReminderMinutes(minutes: Int) {
+        context.dataStore.edit { it[Keys.LAST_REMINDER_MINUTES] = minutes }
+    }
+
+    /** Persist the set of routes that serve [stopId] (extracted from arrivals). */
+    suspend fun cacheRoutesForStop(stopId: String, routes: List<SavedRoute>) {
+        context.dataStore.edit { prefs ->
+            val json = prefs[Keys.ROUTES_BY_STOP]
+            val map: MutableMap<String, List<SavedRoute>> = runCatching {
+                gson.fromJson<MutableMap<String, List<SavedRoute>>>(
+                    json, object : TypeToken<MutableMap<String, List<SavedRoute>>>() {}.type
+                )
+            }.getOrElse { null }?.toMutableMap() ?: mutableMapOf()
+            map[stopId] = routes
+            prefs[Keys.ROUTES_BY_STOP] = gson.toJson(map)
+        }
+    }
+
 }

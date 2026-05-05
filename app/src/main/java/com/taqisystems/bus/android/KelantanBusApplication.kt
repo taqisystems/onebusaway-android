@@ -16,9 +16,10 @@ import kotlinx.coroutines.launch
 class KelantanBusApplication : Application() {
 
     companion object {
-        /** Channel ID used for reminder notifications. Set this same value in the
-         *  OneSignal dashboard under App Settings → Messaging → Android Channel. */
-        const val CHANNEL_ID_REMINDERS = "kelantanbus_reminders"
+        /** Channel ID used for arrival reminder push notifications (alert.wav sound). */
+        const val CHANNEL_ID_REMINDERS    = "kelantanbus_reminders"
+        /** Channel ID used for the destination alert foreground service (silent, low priority). */
+        const val CHANNEL_ID_DESTINATION  = "kelantanbus_destination"
     }
 
     override fun onCreate() {
@@ -74,5 +75,17 @@ class KelantanBusApplication : Application() {
 
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(channel)
+
+        // ── Destination alert foreground service channel (silent, low priority) ──
+        val destChannel = NotificationChannel(
+            CHANNEL_ID_DESTINATION,
+            "Destination Alerts",
+            NotificationManager.IMPORTANCE_LOW,
+        ).apply {
+            description = "Live destination monitoring while on the bus"
+            setSound(null, null)
+            enableVibration(false)
+        }
+        nm.createNotificationChannel(destChannel)
     }
 }

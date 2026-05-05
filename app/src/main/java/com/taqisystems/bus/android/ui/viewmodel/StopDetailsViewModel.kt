@@ -23,6 +23,8 @@ import kotlinx.coroutines.launch
 
 data class StopDetailsUiState(
     val arrivals: List<ObaArrival> = emptyList(),
+    /** Routes known to serve this stop, populated from cached previous arrivals. Shown when arrivals list is empty. */
+    val knownRoutes: List<SavedRoute> = emptyList(),
     val loading: Boolean = false,
     val refreshing: Boolean = false,
     val lastUpdated: Long? = null,
@@ -60,6 +62,7 @@ class StopDetailsViewModel : ViewModel() {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private var pollJob: Job? = null
+    private var cacheJob: Job? = null
     private var currentStopId: String? = null
     private var currentStopName: String = ""
 
@@ -91,6 +94,13 @@ class StopDetailsViewModel : ViewModel() {
         currentStopId = stopId
         if (stopName.isNotBlank()) currentStopName = stopName
         pollJob?.cancel()
+        cacheJob?.cancel()
+        // Load previously cached routes for this stop immediately (shown when arrivals are empty)
+        cacheJob = viewModelScope.launch {
+            prefs.cachedRoutesForStop(stopId).collect { routes ->
+                _uiState.value = _uiState.value.copy(knownRoutes = routes)
+            }
+        }
         fetchArrivals(stopId, silent = false)
         startPolling(stopId)
     }
@@ -106,6 +116,19 @@ class StopDetailsViewModel : ViewModel() {
                     lastUpdated = System.currentTimeMillis(),
                     error = null,
                 )
+                // Cache the routes serving this stop so they can be shown when there are no live arrivals
+                if (arrivals.isNotEmpty()) {
+                    val routes = arrivals.distinctBy { it.routeId }.map { a ->
+                        SavedRoute(
+                            routeId   = a.routeId,
+                            tripId    = a.tripId,
+                            shortName = a.routeShortName,
+                            longName  = a.routeLongName,
+                            headsign  = a.tripHeadsign,
+                        )
+                    }
+                    runCatching { prefs.cacheRoutesForStop(stopId, routes) }
+                }
             }.onFailure { e ->
                 if (!silent) _uiState.value = _uiState.value.copy(error = e.message)
             }
@@ -190,6 +213,11 @@ class StopDetailsViewModel : ViewModel() {
                     deleteUrl      = deleteUrl,
                     minutesBefore  = minutesBefore,
                     sidecarBaseUrl = sidecarUrl,
+                    routeShortName = arrival.routeShortName,
+                    headsign       = arrival.tripHeadsign.ifBlank { arrival.routeLongName },
+                    stopName       = currentStopName,
+                    arrivalEpochMs = if (arrival.predicted) arrival.predictedArrivalTime else arrival.scheduledArrivalTime,
+                    stopId         = currentStopId ?: "",
                 )
                 prefs.addActiveReminder(reminder)
                 _uiState.value = _uiState.value.copy(

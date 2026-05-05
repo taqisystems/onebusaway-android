@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.DirectionsBus
 import androidx.compose.material.icons.filled.DirectionsTransit
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material3.Button
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
@@ -83,6 +84,18 @@ private val pages = listOf(
         navLabel = "Saved",
         title = "Save Your Favourites",
         body = "Bookmark stops and routes for one-tap access. Your saved items are always ready when you need them.",
+    ),
+    OnboardingPage(
+        icon = Icons.Filled.NotificationsActive,
+        navLabel = "Reminders",
+        title = "Never Miss Your Bus",
+        body = "Set arrival reminders on any bus — get notified before it reaches your stop so you're always on time.",
+    ),
+    OnboardingPage(
+        icon = Icons.Filled.MoreHoriz,
+        navLabel = "More",
+        title = "More at Your Fingertips",
+        body = "Access your notifications, active reminders, settings, and app info all from the More tab.",
     ),
 )
 

@@ -19,6 +19,7 @@ import com.taqisystems.bus.android.data.model.ObaStop
 import com.taqisystems.bus.android.data.model.SavedStop
 import com.taqisystems.bus.android.data.model.PlaceResult
 import com.taqisystems.bus.android.data.model.RoutePoint
+import com.taqisystems.bus.android.data.model.OverviewRoute
 import com.taqisystems.bus.android.data.model.outerBoundingBox
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
@@ -31,12 +32,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import org.json.JSONObject
+import java.io.File
 
 /** Unified search result shown in the "Where to?" results panel. */
 sealed class HomeSearchResult {
@@ -83,6 +87,8 @@ data class HomeUiState(
     // vehicleId of the trip pinned to top of the arrivals list — survives map taps,
     // cleared only when a new stop is opened
     val pinnedTripVehicleId: String? = null,
+    // One-shot: set when deep-linking from Reminders so the camera flies to the stop
+    val cameraFocusStop: ObaStop? = null,
     // One-shot message shown when the user switches regions in Settings
     val regionSwitchMessage: String? = null,
     // Location fetch state
@@ -92,6 +98,11 @@ data class HomeUiState(
     val lastCameraLat: Double = 0.0,
     val lastCameraLon: Double = 0.0,
     val lastCameraZoom: Float = 0f,
+    // ── Overview route coverage layer ─────────────────────────────────────────
+    /** Polylines for every route in the region, loaded lazily when zoom < 13. */
+    val overviewRoutes: List<OverviewRoute> = emptyList(),
+    /** True once overview shapes have been fetched for the current region. */
+    val overviewRoutesLoaded: Boolean = false,
     // ── Reminder feature ──────────────────────────────────────────────────────
     /** True when the current region has a sidecar URL configured. */
     val sidecarEnabled: Boolean = false,
@@ -171,7 +182,9 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                     userLon = savedCenterLon,
                     pendingCameraCenter = Pair(savedCenterLat, savedCenterLon),
                 )
+                prefs.setSidecarBaseUrl(region?.sidecarBaseUrl)
                 loadStopsForLocation(savedCenterLat, savedCenterLon)
+                loadOverviewRoutes()
             } else {
                 fetchUserLocation()
             }
@@ -195,6 +208,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 prefs.regionCenterLon,
             ) { autoDetect, regionId, lat, lon -> arrayOf(autoDetect, regionId, lat, lon) }
                 .drop(1) // skip initial emission — only react to active changes
+                .debounce(150) // collapse burst emissions from atomic DataStore writes
                 .collect { arr ->
                     val autoDetect = arr[0] as Boolean
                     val regionId   = arr[1] as? String
@@ -202,25 +216,46 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                     val lon        = arr[3] as? Double
                     if (!autoDetect && lat != null && lon != null) {
                         hasCenteredOnLocation = false
-                        // Clear stale stops/arrivals immediately so the map doesn't briefly
-                        // show data from the old region while the camera flies to the new one.
+                        // Cancel arrival polling and clear the selected stop so the sheet
+                        // hides immediately — poll job must be cancelled before the copy so
+                        // it can't repopulate arrivals for the old stop after we clear it.
+                        selectStop(null)
                         _uiState.value = _uiState.value.copy(
                             stops = emptyList(),
-                            selectedStop = null,
-                            arrivals = emptyList(),
                             routeHighlight = null,
                             routeHighlightShape = emptyList(),
                             routeHighlightVehicles = emptyList(),
                             focusedVehicle = null,
+                            // Reset overview so it reloads for the new region
+                            overviewRoutes = emptyList(),
+                            overviewRoutesLoaded = false,
                         )
                         // Refresh activeRegion so search/geocoding uses the new region's bbox
                         val regions = runCatching { regionsRepo.fetchRegions() }.getOrElse { emptyList() }
                         val region = regions.find { it.id.toString() == regionId }
+                        val resolvedRegion = region ?: _uiState.value.activeRegion
                         _uiState.value = _uiState.value.copy(
                             pendingCameraCenter = Pair(lat, lon),
-                            activeRegion = region ?: _uiState.value.activeRegion,
-                            regionSwitchMessage = region?.regionName?.let { "You're now in $it" },
+                            activeRegion = resolvedRegion,
+                            regionSwitchMessage = resolvedRegion?.regionName?.let { "You're now in $it" },
                         )
+                        prefs.setSidecarBaseUrl(resolvedRegion?.sidecarBaseUrl)
+                        loadOverviewRoutes()
+                    } else if (autoDetect) {
+                        // User switched back to auto-detect: clear map state and re-detect
+                        // the region from the device GPS position.
+                        hasCenteredOnLocation = false
+                        selectStop(null)
+                        _uiState.value = _uiState.value.copy(
+                            stops = emptyList(),
+                            routeHighlight = null,
+                            routeHighlightShape = emptyList(),
+                            routeHighlightVehicles = emptyList(),
+                            focusedVehicle = null,
+                            overviewRoutes = emptyList(),
+                            overviewRoutesLoaded = false,
+                        )
+                        fetchUserLocation(recenterCamera = true)
                     }
                 }
         }
@@ -258,12 +293,14 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                         isLocatingUser = false,
                         locationError = "Couldn't get your location. Try again.",
                     )
+                    loadFallbackRegion("Couldn't get your location; showing Kuala Lumpur")
                 }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLocatingUser = false,
                     locationError = "Couldn't get your location. Try again.",
                 )
+                loadFallbackRegion("Couldn't get your location; showing Kuala Lumpur")
             }
         }
     }
@@ -275,28 +312,101 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     private fun loadRegionAndStops(lat: Double, lon: Double) {
         viewModelScope.launch {
             val regions = runCatching { regionsRepo.fetchRegions() }.getOrElse { emptyList() }
-            val region = regionsRepo.findRegionForLocation(regions, lat, lon)
+            val detectedRegion = regionsRepo.findRegionForLocation(regions, lat, lon)
+            val prefs = ServiceLocator.preferences
+            val savedRegionId = prefs.regionId.first()?.toIntOrNull()
+            val fallbackRegion = preferredFallbackRegion(regions)
+                ?: regions.firstOrNull { it.id == savedRegionId }
+                ?: _uiState.value.activeRegion
+                ?: regions.firstOrNull()
+            val region = detectedRegion ?: fallbackRegion
             val previousRegion = _uiState.value.activeRegion
             val switchedMessage = if (
+                detectedRegion == null &&
+                region != null
+            ) "You're outside the service area; showing ${region.regionName}" else if (
                 region != null &&
                 previousRegion != null &&
                 region.id != previousRegion.id
             ) "You're now in ${region.regionName}" else null
+            val targetLat = if (detectedRegion != null) lat else region?.centerLat ?: lat
+            val targetLon = if (detectedRegion != null) lon else region?.centerLon ?: lon
             _uiState.value = _uiState.value.copy(
                 activeRegion = region,
                 regionSwitchMessage = switchedMessage,
+                pendingCameraCenter = if (detectedRegion == null && region != null) {
+                    Pair(targetLat, targetLon)
+                } else {
+                    _uiState.value.pendingCameraCenter
+                },
             )
             // Persist sidecarBaseUrl so StopDetailsViewModel can gate the reminder feature
-            val prefs = ServiceLocator.preferences
-            prefs.setSidecarBaseUrl(region?.sidecarBaseUrl)
-            loadStopsForLocation(lat, lon)
+            if (region != null) {
+                ServiceLocator.applyRegionUrls(region.obaBaseUrl)
+                prefs.setRegion(region.id.toString(), region.obaBaseUrl, region.otpBaseUrl, region.sidecarBaseUrl)
+                prefs.setRegionCenter(region.centerLat, region.centerLon)
+            } else {
+                prefs.setSidecarBaseUrl(null)
+            }
+            if (region?.id != previousRegion?.id) {
+                _uiState.value = _uiState.value.copy(overviewRoutes = emptyList(), overviewRoutesLoaded = false)
+                loadOverviewRoutes()
+            }
+            loadStopsForLocation(targetLat, targetLon)
         }
     }
 
-    fun loadStopsForLocation(lat: Double, lon: Double) {
+    private fun loadFallbackRegion(message: String? = null) {
+        viewModelScope.launch {
+            val regions = runCatching { regionsRepo.fetchRegions() }.getOrElse { emptyList() }
+            val region = preferredFallbackRegion(regions) ?: regions.firstOrNull()
+            if (region == null) {
+                _uiState.value = _uiState.value.copy(loading = false)
+                return@launch
+            }
+            val targetLat = region.centerLat.takeIf { it != 0.0 } ?: KUALA_LUMPUR_LAT
+            val targetLon = region.centerLon.takeIf { it != 0.0 } ?: KUALA_LUMPUR_LON
+            _uiState.value = _uiState.value.copy(
+                activeRegion = region,
+                regionSwitchMessage = message ?: "Showing ${region.regionName}",
+                pendingCameraCenter = Pair(targetLat, targetLon),
+                isLocatingUser = false,
+            )
+            val prefs = ServiceLocator.preferences
+            ServiceLocator.applyRegionUrls(region.obaBaseUrl)
+            prefs.setRegion(region.id.toString(), region.obaBaseUrl, region.otpBaseUrl, region.sidecarBaseUrl)
+            prefs.setRegionCenter(region.centerLat, region.centerLon)
+            loadOverviewRoutes()
+            loadStopsForLocation(targetLat, targetLon)
+        }
+    }
+
+    private fun preferredFallbackRegion(regions: List<ObaRegion>): ObaRegion? =
+        regions.firstOrNull { region ->
+            region.regionName.contains("Kuala", ignoreCase = true) &&
+                region.regionName.contains("Lumpur", ignoreCase = true)
+        } ?: regions.firstOrNull { region ->
+            region.regionName.contains("KL", ignoreCase = true) ||
+                region.regionName.contains("Klang", ignoreCase = true)
+        } ?: regions.firstOrNull { !it.sidecarBaseUrl.isNullOrBlank() }
+
+    fun loadStopsForLocation(lat: Double, lon: Double, zoom: Float = 15f) {
+        // Don't bother fetching when too far zoomed out — markers are hidden anyway.
+        if (zoom < 13f) {
+            _uiState.value = _uiState.value.copy(stops = emptyList(), loading = false)
+            return
+        }
+        // Adapt the search radius to how much of the map is visible.
+        // Tighter zoom → smaller radius keeps marker count manageable (~30-60).
+        val radius = when {
+            zoom >= 16f -> 600
+            zoom >= 15f -> 900
+            zoom >= 14f -> 1400
+            else        -> 2200   // zoom 13–14
+        }
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(loading = true, error = null)
-            val stops = runCatching { obaRepo.getStopsForLocation(lat, lon) }
+            val stops = runCatching { obaRepo.getStopsForLocation(lat, lon, radius) }
                 .getOrElse { _uiState.value = _uiState.value.copy(error = it.message); emptyList() }
             _uiState.value = _uiState.value.copy(stops = stops, loading = false)
         }
@@ -313,28 +423,115 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             pinnedTripVehicleId = null,
         )
         if (stop != null) {
-            loadArrivals(stop.id, silent = false)
             arrivalsPollJob = viewModelScope.launch {
+                // Initial load
+                fetchArrivals(stop.id, silent = false)
+                // Poll every 30 s — inline so there is never more than one
+                // in-flight request and the poll clock resets after each response.
                 while (isActive) {
                     delay(30_000)
-                    loadArrivals(stop.id, silent = true)
+                    fetchArrivals(stop.id, silent = true)
                 }
             }
         }
     }
 
-    fun clearSelectedStop() = selectStop(null)
-    fun loadArrivals(stopId: String, silent: Boolean = false) {
-        viewModelScope.launch {
-            if (!silent) _uiState.value = _uiState.value.copy(arrivalsLoading = true)
-            val arrivals = runCatching { obaRepo.getArrivalsForStop(stopId) }
-                .getOrElse { emptyList() }
+    /** Called when the app returns to the foreground with a stop already selected. */
+    fun refreshArrivalsIfStale() {
+        val stopId = _uiState.value.selectedStop?.id ?: return
+        val lastUpdated = _uiState.value.arrivalsLastUpdated ?: 0L
+        val staleSec = (System.currentTimeMillis() - lastUpdated) / 1000L
+        // If more than one full poll interval has elapsed, refresh immediately
+        // (mirrors OBA Android's ArrivalsListFragment.onStart() stale-check)
+        if (staleSec >= 30) {
+            arrivalsPollJob?.cancel()
+            arrivalsPollJob = viewModelScope.launch {
+                fetchArrivals(stopId, silent = true)
+                while (isActive) {
+                    delay(30_000)
+                    fetchArrivals(stopId, silent = true)
+                }
+            }
+        }
+    }
+
+    /**
+     * Inline (non-coroutine-launching) arrivals fetch used by the poll loop.
+     * Unlike the old [loadArrivals], this runs directly inside the caller's
+     * coroutine so there is never more than one request in flight at a time.
+     *
+     * On error the existing arrival list is preserved (mirrors OBA Android's
+     * ArrivalsListLoader mLastGoodResponse pattern) and one automatic retry
+     * is attempted after a short delay.
+     */
+    private suspend fun fetchArrivals(stopId: String, silent: Boolean) {
+        if (!silent) _uiState.value = _uiState.value.copy(arrivalsLoading = true)
+        val result = runCatching { obaRepo.getArrivalsForStop(stopId) }
+        if (result.isSuccess) {
+            val fresh = result.getOrThrow()
+            val existing = _uiState.value.arrivals
+            // Mirror OBA's mLastGoodResponse: during a silent refresh never replace
+            // a non-empty list with an empty one (server transient empty / brief hiccup).
+            // Only accept empty on an explicit (non-silent) load, i.e. stop first selected.
+            val nextArrivals = if (fresh.isEmpty() && silent && existing.isNotEmpty()) existing else fresh
             _uiState.value = _uiState.value.copy(
-                arrivals = arrivals,
+                arrivals = nextArrivals,
                 arrivalsLoading = false,
                 arrivalsLastUpdated = System.currentTimeMillis(),
             )
+        } else {
+            // Network/timeout error — keep the last good list visible and retry once
+            _uiState.value = _uiState.value.copy(arrivalsLoading = false)
+            delay(5_000)
+            val retry = runCatching { obaRepo.getArrivalsForStop(stopId) }
+            if (retry.isSuccess) {
+                val fresh = retry.getOrThrow()
+                val existing = _uiState.value.arrivals
+                val nextArrivals = if (fresh.isEmpty() && existing.isNotEmpty()) existing else fresh
+                _uiState.value = _uiState.value.copy(
+                    arrivals = nextArrivals,
+                    arrivalsLastUpdated = System.currentTimeMillis(),
+                )
+            }
+            // If retry also fails, existing arrivals remain visible unchanged.
         }
+    }
+
+    fun clearSelectedStop() = selectStop(null)
+
+    /**
+     * Deep-link entry point: fetch the stop's lat/lon from the OBA API, then
+     * select it so the bottom sheet opens with live arrivals.
+     */
+    fun focusStopById(stopId: String, stopName: String, stopLat: Double = 0.0, stopLon: Double = 0.0) {
+        if (stopId.isBlank()) return
+        // Optimistically select a stub stop immediately so the sheet starts loading
+        selectStop(ObaStop(id = stopId, name = stopName, lat = stopLat, lon = stopLon))
+        // If we already have valid coords, set cameraFocusStop immediately.
+        if (stopLat != 0.0 || stopLon != 0.0) {
+            val stop = ObaStop(id = stopId, name = stopName, lat = stopLat, lon = stopLon)
+            _uiState.value = _uiState.value.copy(cameraFocusStop = stop)
+            return
+        }
+        // Fallback: fetch real coords from network.
+        viewModelScope.launch {
+            val stop = obaRepo.getStopLocation(stopId)
+            if (stop != null) {
+                _uiState.value = _uiState.value.copy(
+                    selectedStop    = stop,
+                    cameraFocusStop = stop,
+                )
+            }
+        }
+    }
+
+    fun clearCameraFocusStop() {
+        _uiState.value = _uiState.value.copy(cameraFocusStop = null)
+    }
+
+    /** Still public for external one-off triggers (e.g. pull-to-refresh). */
+    fun loadArrivals(stopId: String, silent: Boolean = false) {
+        viewModelScope.launch { fetchArrivals(stopId, silent) }
     }
 
     fun loadRouteShape(shapeId: String) {
@@ -359,6 +556,15 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearFocusedVehicle() {
         _uiState.value = _uiState.value.copy(focusedVehicle = null)
+    }
+
+    fun unpinTrip() {
+        _uiState.value = _uiState.value.copy(
+            pinnedTripVehicleId = null,
+            focusedVehicle = null,
+            routeShape = emptyList(),
+            selectedArrivalStatus = null,
+        )
     }
 
     /** Called when a bus vehicle marker is tapped on the map. */
@@ -495,6 +701,92 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    /**
+     * Lazily loads the polyline shapes for every route in the current region.
+     * Called when the user zooms out below zoom 13. Results are cached —
+     * subsequent calls while [HomeUiState.overviewRoutesLoaded] is true are no-ops.
+     */
+    fun loadOverviewRoutes() {
+        if (_uiState.value.overviewRoutesLoaded) return
+        viewModelScope.launch {
+            val prefs     = ServiceLocator.preferences
+            val sidecarUrl = prefs.sidecarBaseUrl.first()
+                ?: _uiState.value.activeRegion?.sidecarBaseUrl
+            val regionId  = prefs.regionId.first()?.toString() ?: "0"
+
+            val cacheFile = File(
+                getApplication<Application>().filesDir,
+                "route_shapes_$regionId.geojson"
+            )
+
+            // ── 1. Serve from cache if available ─────────────────────────────
+            if (cacheFile.exists()) {
+                val cached = runCatching { parseGeoJsonShapes(cacheFile.readText()) }.getOrNull()
+                if (!cached.isNullOrEmpty()) {
+                    _uiState.value = _uiState.value.copy(
+                        overviewRoutes = cached,
+                        overviewRoutesLoaded = true,
+                    )
+                    // Refresh in background if the cache is older than 7 days
+                    val staleMs = 7L * 24 * 3600 * 1000
+                    if (!sidecarUrl.isNullOrBlank() &&
+                        System.currentTimeMillis() - cacheFile.lastModified() > staleMs
+                    ) {
+                        refreshRouteShapesFromSidecar(sidecarUrl, regionId, cacheFile, updateUi = false)
+                    }
+                    return@launch
+                }
+            }
+
+            // ── 2. No usable cache — download from sidecar if configured ─────
+            if (!sidecarUrl.isNullOrBlank()) {
+                refreshRouteShapesFromSidecar(sidecarUrl, regionId, cacheFile, updateUi = true)
+            }
+            // If no sidecar, silently leave overviewRoutesLoaded = false so
+            // the user sees the map without overview polylines.
+        }
+    }
+
+    private suspend fun refreshRouteShapesFromSidecar(
+        sidecarUrl: String,
+        regionId: String,
+        cacheFile: File,
+        updateUi: Boolean,
+    ) {
+        val url = sidecarUrl.trimEnd('/') +
+                "/api/v1/regions/$regionId/routes.geojson"
+        val json = runCatching { obaRepo.downloadText(url) }.getOrNull() ?: return
+        runCatching { cacheFile.writeText(json) }
+        val shapes = runCatching { parseGeoJsonShapes(json) }.getOrNull() ?: return
+        if (updateUi && shapes.isNotEmpty()) {
+            _uiState.value = _uiState.value.copy(
+                overviewRoutes = shapes,
+                overviewRoutesLoaded = true,
+            )
+        }
+    }
+
+    /** Parses a GeoJSON FeatureCollection into a list of OverviewRoutes (polyline + short name). */
+    private fun parseGeoJsonShapes(json: String): List<OverviewRoute> {
+        val root     = JSONObject(json)
+        val features = root.getJSONArray("features")
+        val result   = mutableListOf<OverviewRoute>()
+        for (i in 0 until features.length()) {
+            val feat   = features.getJSONObject(i)
+            val props  = feat.optJSONObject("properties")
+            val shortName = props?.optString("shortName") ?: ""
+            val geom   = feat.optJSONObject("geometry") ?: continue
+            if (geom.optString("type") != "LineString") continue
+            val coords = geom.getJSONArray("coordinates")
+            val pts    = (0 until coords.length()).map { j ->
+                val c = coords.getJSONArray(j)
+                RoutePoint(lat = c.getDouble(1), lon = c.getDouble(0)) // GeoJSON is [lon, lat]
+            }
+            if (pts.size >= 2) result += OverviewRoute(shortName = shortName, points = pts)
+        }
+        return result
+    }
+
     // legacy – kept for compat with old search sheet code
     fun searchDestination(query: String) = onSearchQueryChanged(query)
     fun clearDestinationSearch() = setSearchActive(false)
@@ -544,6 +836,13 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                     deleteUrl      = deleteUrl,
                     minutesBefore  = minutesBefore,
                     sidecarBaseUrl = sidecarUrl,
+                    routeShortName = arrival.routeShortName,
+                    headsign       = arrival.tripHeadsign.ifBlank { arrival.routeLongName },
+                    stopName       = stop.name,
+                    arrivalEpochMs = if (arrival.predicted) arrival.predictedArrivalTime else arrival.scheduledArrivalTime,
+                    stopId         = stop.id,
+                    stopLat        = stop.lat,
+                    stopLon        = stop.lon,
                 )
                 prefs.addActiveReminder(reminder)
                 _uiState.value = _uiState.value.copy(
@@ -586,6 +885,11 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearReminderMessage() {
         _uiState.value = _uiState.value.copy(reminderMessage = null, lastCancelledReminder = null)
+    }
+
+    companion object {
+        private const val KUALA_LUMPUR_LAT = 3.1390
+        private const val KUALA_LUMPUR_LON = 101.6869
     }
 
     override fun onCleared() {

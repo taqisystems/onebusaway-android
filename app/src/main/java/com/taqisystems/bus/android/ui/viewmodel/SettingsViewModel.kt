@@ -44,9 +44,9 @@ class SettingsViewModel : ViewModel() {
         }
     }
 
-    private suspend fun loadRegions() {
+    private suspend fun loadRegions(forceRefresh: Boolean = false) {
         _uiState.value = _uiState.value.copy(loading = true, error = null)
-        runCatching { regionsRepo.fetchRegions() }
+        runCatching { regionsRepo.fetchRegions(forceRefresh = forceRefresh) }
             .onSuccess { regions ->
                 _uiState.value = _uiState.value.copy(regions = regions, loading = false)
                 fetchLocationAndDetect(regions)
@@ -119,7 +119,7 @@ class SettingsViewModel : ViewModel() {
     }
 
     fun refreshRegions() {
-        viewModelScope.launch { loadRegions() }
+        viewModelScope.launch { loadRegions(forceRefresh = true) }
     }
 
     /** Sort regions by proximity to the user; if no location known, return as-is (by name). */

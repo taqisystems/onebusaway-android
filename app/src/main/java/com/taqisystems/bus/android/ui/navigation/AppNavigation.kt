@@ -17,6 +17,7 @@ import com.taqisystems.bus.android.ServiceLocator
 import com.taqisystems.bus.android.ui.screens.AboutScreen
 import com.taqisystems.bus.android.ui.screens.FeedbackScreen
 import com.taqisystems.bus.android.ui.screens.NotificationsScreen
+import com.taqisystems.bus.android.ui.screens.RemindersScreen
 import com.taqisystems.bus.android.ui.screens.HomeMapScreen
 import com.taqisystems.bus.android.ui.screens.MoreScreen
 import com.taqisystems.bus.android.ui.screens.OnboardingScreen
@@ -43,6 +44,7 @@ object Routes {
     const val ABOUT = "about"
     const val FEEDBACK = "feedback"
     const val NOTIFICATIONS = "notifications"
+    const val REMINDERS = "reminders"
 
     /** Navigate to plan screen without pre-fill */
     const val PLAN_PLAIN = "plan"
@@ -143,6 +145,9 @@ fun AppNavigation() {
         }
         composable(Routes.NOTIFICATIONS) {
             NotificationsScreen(navController = navController)
+        }
+        composable(Routes.REMINDERS) {
+            RemindersScreen(navController = navController)
         }
         composable(
             route = "stop/{stopId}?name={stopName}&code={stopCode}",

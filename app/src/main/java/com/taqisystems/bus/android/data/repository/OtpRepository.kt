@@ -58,6 +58,9 @@ private data class OtpLegJson(
     @SerializedName("mode") val mode: String = "",
     @SerializedName("transitLeg") val transitLeg: Boolean = false,
     @SerializedName("route") val route: String = "",
+    @SerializedName("routeShortName") val routeShortName: String? = null,
+    @SerializedName("routeLongName") val routeLongName: String? = null,
+    @SerializedName("routeType") val routeType: Int? = null,
     @SerializedName("routeId") val routeId: String? = null,
     @SerializedName("tripId") val tripId: String? = null,
     @SerializedName("headsign") val headsign: String? = null,
@@ -89,8 +92,18 @@ private data class OtpIntermediateStopJson(
     @SerializedName("stopId") val stopId: String? = null,
 )
 
-class OtpRepository {
-    private val http = OkHttpClient()
+/** Maps a GTFS route type integer to the canonical OTP mode string used for icons/colors. */
+private fun gtfsTypeToOtpMode(routeType: Int): String = when (routeType) {
+    0    -> "TRAM"      // LRT / light rail / tram
+    1    -> "SUBWAY"    // MRT / metro / rapid transit
+    2    -> "RAIL"      // KTM Komuter / intercity rail
+    4    -> "FERRY"
+    11   -> "MONORAIL"
+    3    -> "BUS"
+    else -> "BUS"
+}
+
+class OtpRepository(private val http: OkHttpClient = OkHttpClient()) {
     private val gson = Gson()
     private val dateFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
     private val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.US)
@@ -104,7 +117,7 @@ class OtpRepository {
         date: String? = null,
         time: String? = null,
         modes: String = "TRANSIT,WALK",
-        numItineraries: Int = 3,
+        numItineraries: Int = 5,
         arriveBy: Boolean = false,
     ): List<OtpItinerary> = withContext(Dispatchers.IO) {
         val now = Date()
@@ -133,8 +146,11 @@ class OtpRepository {
         startTime = startTime,
         endTime = endTime,
         legs = legs?.map { leg ->
+            // Derive canonical OTP mode from GTFS routeType if present — more reliable
+            // than the 'mode' string which can vary between OTP versions/configs.
+            val resolvedMode = leg.routeType?.let { gtfsTypeToOtpMode(it) } ?: leg.mode
             OtpLeg(
-                mode = leg.mode,
+                mode = resolvedMode,
                 transitLeg = leg.transitLeg,
                 route = leg.route,
                 routeId = leg.routeId,
@@ -148,6 +164,9 @@ class OtpRepository {
                 duration = leg.duration,
                 distance = leg.distance,
                 legGeometry = leg.legGeometry?.points,
+                routeShortName = leg.routeShortName?.takeIf { it.isNotBlank() }
+                    ?: leg.route.takeIf { it.isNotBlank() },
+                routeLongName = leg.routeLongName,
                 intermediateStops = leg.intermediateStops?.map { s ->
                     OtpIntermediateStop(s.name, s.lat, s.lon, s.arrival, s.departure, s.stopId)
                 } ?: emptyList(),

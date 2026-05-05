@@ -9,6 +9,7 @@ import android.provider.Settings
 import androidx.core.content.ContextCompat
 import android.graphics.Bitmap
 import android.speech.RecognizerIntent
+import com.taqisystems.bus.android.data.model.TransitType
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
@@ -17,8 +18,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -58,7 +63,10 @@ import com.taqisystems.bus.android.data.model.ActiveReminder
 import com.taqisystems.bus.android.data.model.ArrivalStatus
 import com.taqisystems.bus.android.data.model.ObaArrival
 import com.taqisystems.bus.android.data.model.ObaStop
+import com.taqisystems.bus.android.data.model.OverviewRoute
 import com.taqisystems.bus.android.data.model.PlaceResult
+import com.taqisystems.bus.android.PendingStopFocus
+import com.taqisystems.bus.android.ServiceLocator
 import com.taqisystems.bus.android.ui.navigation.Routes
 import com.taqisystems.bus.android.ui.theme.*
 import com.taqisystems.bus.android.ui.viewmodel.HomeSearchResult
@@ -67,6 +75,9 @@ import com.taqisystems.bus.android.ui.viewmodel.HomeViewModel
 import com.taqisystems.bus.android.ui.viewmodel.HomeViewModelFactory
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,7 +87,25 @@ fun HomeMapScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    // ── Voice recognition ─────────────────────────────────────────────────────
+    // Refresh arrivals immediately when app returns to foreground if data is stale.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshArrivalsIfStale()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Collect pending stop focus from Reminders deep-link — reactive, no lifecycle race.
+    LaunchedEffect(Unit) {
+        PendingStopFocus.flow.collect { pending ->
+            if (pending != null) {
+                PendingStopFocus.clear()
+                viewModel.focusStopById(pending.id, pending.name, pending.lat, pending.lon)
+            }
+        }
+    }
     var isListening by remember { mutableStateOf(false) }
     val speechLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
@@ -101,13 +130,24 @@ fun HomeMapScreen(
     }
 
     val defaultLatlng = LatLng(6.1254, 102.2381) // Kota Bharu default
-    // Restore the last camera position saved before the user navigated away;
-    // fall back to the Kota Bharu default on first launch.
-    val restoredLatlng = if (uiState.lastCameraLat != 0.0 || uiState.lastCameraLon != 0.0)
-        LatLng(uiState.lastCameraLat, uiState.lastCameraLon) else defaultLatlng
-    val restoredZoom = if (uiState.lastCameraZoom > 0f) uiState.lastCameraZoom else 14f
+    // If a region change is pending (user picked a new region in Settings), jump straight
+    // to that centre on initial composition so the map never flashes the old region.
+    // Otherwise restore the last saved camera position, falling back to Kota Bharu.
+    val pendingCenter = uiState.pendingCameraCenter
+    val initialLatLng = when {
+        pendingCenter != null ->
+            LatLng(pendingCenter.first, pendingCenter.second)
+        uiState.lastCameraLat != 0.0 || uiState.lastCameraLon != 0.0 ->
+            LatLng(uiState.lastCameraLat, uiState.lastCameraLon)
+        else -> defaultLatlng
+    }
+    val initialZoom = when {
+        pendingCenter != null -> 12f
+        uiState.lastCameraZoom > 0f -> uiState.lastCameraZoom
+        else -> 14f
+    }
     val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(restoredLatlng, restoredZoom)
+        position = CameraPosition.fromLatLngZoom(initialLatLng, initialZoom)
     }
 
     // Sheet state — persistent BottomSheetScaffold with peek
@@ -121,6 +161,18 @@ fun HomeMapScreen(
     )
     val scaffoldState = rememberBottomSheetScaffoldState(bottomSheetState = sheetState)
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // One-shot: fly camera to a stop fetched via deep-link (real coords come async)
+    LaunchedEffect(uiState.cameraFocusStop?.id) {
+        val stop = uiState.cameraFocusStop ?: return@LaunchedEffect
+        cameraPositionState.animate(
+            com.google.android.gms.maps.CameraUpdateFactory.newLatLngZoom(
+                LatLng(stop.lat, stop.lon), 16f,
+            )
+        )
+        scaffoldState.bottomSheetState.partialExpand()
+        viewModel.clearCameraFocusStop()
+    }
 
     // Show a snackbar whenever the user switches regions from Settings
     val regionSwitchMessage = uiState.regionSwitchMessage
@@ -136,6 +188,7 @@ fun HomeMapScreen(
     val scope = rememberCoroutineScope()
     val savedStops by viewModel.savedStops.collectAsState()
     val activeReminders by viewModel.activeReminders.collectAsState()
+    val unreadNotifCount by ServiceLocator.preferences.unreadNotificationCount.collectAsState(initial = 0)
 
     // Reminder snackbar with optional Undo
     LaunchedEffect(uiState.reminderMessage) {
@@ -196,14 +249,21 @@ fun HomeMapScreen(
         }
     }
 
-    // Fly to a manually selected region (Settings → pick region → back to map)
+    // Fly to a manually selected region (Settings → pick region → back to map).
+    // If the screen re-enters composition with pendingCameraCenter already set the
+    // initial position is already correct (see above), but we still animate for the
+    // case where the region changes while the map is live. The try-catch ensures
+    // clearPendingCameraCenter / loadStopsForLocation always run even if the map
+    // isn't fully attached yet and animate() throws.
     LaunchedEffect(uiState.pendingCameraCenter) {
         uiState.pendingCameraCenter?.let { (lat, lon) ->
-            cameraPositionState.animate(
-                com.google.android.gms.maps.CameraUpdateFactory.newLatLngZoom(
-                    LatLng(lat, lon), 12f,
-                ),
-            )
+            try {
+                cameraPositionState.animate(
+                    com.google.android.gms.maps.CameraUpdateFactory.newLatLngZoom(
+                        LatLng(lat, lon), 12f,
+                    ),
+                )
+            } catch (_: Exception) { /* map not yet attached — initial position already set */ }
             viewModel.markCameracentered()
             viewModel.clearPendingCameraCenter()
             // Explicitly reload stops at the new region centre so we don't rely on the
@@ -255,17 +315,21 @@ fun HomeMapScreen(
     }
 
     // peekHeight breakdown when a stop is selected:
-    //   drag handle  : 16dp  (pill + padding)
-    //   stop header  : 76dp  (stop name headlineMedium + code labelMedium + 12dp×2 vert padding)
-    //   arrivals hdr : 40dp  ("Arrivals" headlineMedium 36dp + 4dp bottom padding)
-    //   divider      :  1dp
-    //   one ArrivalRow: 92dp (Surface 4dp×2 + inner Row 14dp×2 + minHeight 56dp)
-    //   buffer       : 75dp  (font scaling, density rounding, "no active buses" banner)
-    //   total        : 300dp + nav bar inset
-    val navBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val oneRowPeekHeight = navBarInset + 300.dp
+    //   drag handle   : ~16dp
+    //   stop header   : ~80dp  (name + code + route count + padding)
+    //   arrivals hdr  : ~40dp
+    //   divider       :   1dp
+    //   one ArrivalRow: ~92dp  (min-height; a row with via + sched line can reach ~160dp)
+    //   buffer        : ~70dp
+    //   total (normal): 300dp + nav bar inset
+    //   total (pinned): 520dp + nav bar inset  (generous for pinned row with secondary/via line)
+    val navBarInset      = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val handleBarHeight  = 52.dp
-    val peekHeight = if (selectedStop != null) oneRowPeekHeight else handleBarHeight
+    val peekHeight = when {
+        selectedStop == null                -> handleBarHeight
+        uiState.pinnedTripVehicleId != null -> navBarInset + 330.dp  // 300dp + ~30dp for 2-line name + via/sched lines
+        else                               -> navBarInset + 300.dp
+    }
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0),
@@ -283,6 +347,7 @@ fun HomeMapScreen(
             )
         },
     ) { innerPadding ->
+        Box(Modifier.fillMaxSize()) {
         BottomSheetScaffold(
             scaffoldState = scaffoldState,
             sheetPeekHeight = peekHeight,
@@ -333,6 +398,7 @@ fun HomeMapScreen(
                         onMinimize = {
                             scope.launch { scaffoldState.bottomSheetState.partialExpand() }
                         },
+                        onUnpinTrip = { viewModel.unpinTrip() },
                         onCenterOnStop = {
                             scope.launch {
                                 cameraPositionState.animate(
@@ -389,9 +455,11 @@ fun HomeMapScreen(
             if (!cameraPositionState.isMoving) {
                 val pos = cameraPositionState.position
                 val center = pos.target
-                viewModel.loadStopsForLocation(center.latitude, center.longitude)
+                viewModel.loadStopsForLocation(center.latitude, center.longitude, pos.zoom)
                 // Persist so the position is restored if the user navigates to another tab
                 viewModel.saveCameraPosition(center.latitude, center.longitude, pos.zoom)
+                // Lazily load route coverage lines when zoomed out
+                if (pos.zoom < 13f) viewModel.loadOverviewRoutes()
             }
         }
 
@@ -406,15 +474,69 @@ fun HomeMapScreen(
             },
         ) {
             val mapContext = LocalContext.current
-            val brandRed  = Primary.toArgb()
+            val currentZoom = cameraPositionState.position.zoom
+            // Below zoom 13 the map is too far out for stop markers to be useful;
+            // suppress them entirely to avoid a cluttered pin wall.
+            val stopsVisible = currentZoom >= 13f
+
+            // ── Overview route coverage lines (zoom < 13, no active highlight) ───────
+            // Thin translucent polylines for every route in the region, each with
+            // a small route-name chip at its midpoint so commuters can identify routes.
+            if (!stopsVisible && uiState.routeHighlight == null && uiState.overviewRoutes.isNotEmpty()) {
+                uiState.overviewRoutes.forEach { route ->
+                    Polyline(
+                        points  = route.points.map { LatLng(it.lat, it.lon) },
+                        color   = Primary.copy(alpha = 0.30f),
+                        width   = 5f,
+                        zIndex  = 0f,
+                    )
+                    // Label chip at the midpoint of the polyline
+                    if (route.shortName.isNotBlank()) {
+                        val mid = route.points[route.points.size / 2]
+                        val chipIcon = remember(route.shortName) {
+                            createRouteLabelBitmap(mapContext, route.shortName)
+                        }
+                        Marker(
+                            state  = MarkerState(LatLng(mid.lat, mid.lon)),
+                            icon   = chipIcon,
+                            anchor = Offset(0.5f, 0.5f),
+                            flat   = true,
+                            zIndex = 1f,
+                            onClick = { false }, // non-interactive
+                        )
+                    }
+                }
+            }
             // When a route is highlighted, only show stops that serve that route
-            val visibleStops = uiState.routeHighlight
-                ?.let { r -> uiState.stops.filter { s -> s.routeIds.contains(r.id) } }
-                ?: uiState.stops
+            val visibleStops = if (!stopsVisible) emptyList()
+                else uiState.routeHighlight
+                    ?.let { r -> uiState.stops.filter { s -> s.routeIds.contains(r.id) } }
+                    ?: uiState.stops
+            // If the selected stop is not in the visible list (e.g. deep-linked
+            // from Reminders before the map has loaded stops for that area),
+            // render it as a synthetic selected marker so it always appears.
+            val selectedStopForMarker = uiState.selectedStop?.takeIf { sel ->
+                sel.lat != 0.0 || sel.lon != 0.0
+            }
+            if (selectedStopForMarker != null &&
+                visibleStops.none { it.id == selectedStopForMarker.id }) {
+                val icon = remember(selectedStopForMarker.id, selectedStopForMarker.transitType) {
+                    createStopMarkerBitmap(mapContext, true, selectedStopForMarker.transitType)
+                }
+                Marker(
+                    state = MarkerState(LatLng(selectedStopForMarker.lat, selectedStopForMarker.lon)),
+                    title = selectedStopForMarker.name,
+                    icon = icon,
+                    onClick = {
+                        viewModel.selectStop(selectedStopForMarker)
+                        true
+                    },
+                )
+            }
             visibleStops.forEach { stop ->
                 val isSelected = stop.id == uiState.selectedStop?.id
-                val icon = remember(isSelected) {
-                    createStopMarkerBitmap(mapContext, isSelected, brandRed)
+                val icon = remember(isSelected, stop.transitType) {
+                    createStopMarkerBitmap(mapContext, isSelected, stop.transitType)
                 }
                 Marker(
                     state = MarkerState(LatLng(stop.lat, stop.lon)),
@@ -444,16 +566,25 @@ fun HomeMapScreen(
                         ArrivalStatus.EARLY     -> VehicleMarkerFactory.COLOR_EARLY
                         else                    -> VehicleMarkerFactory.COLOR_SCHEDULED
                     }
+                    val statusLabel = when (arrival.status) {
+                        ArrivalStatus.ON_TIME   -> "On time"
+                        ArrivalStatus.DELAYED   -> "Delayed"
+                        ArrivalStatus.EARLY     -> "Early"
+                        else                    -> "Scheduled"
+                    }
                     val isFocused = uiState.focusedVehicle?.let { fv ->
                         (fv.vehicleId != null && fv.vehicleId == arrival.vehicleId) ||
                             fv.tripId == arrival.tripId
                     } ?: false
+                    val isPinnedMarker = arrival.vehicleId != null &&
+                        arrival.vehicleId == uiState.pinnedTripVehicleId
                     val markerResult = remember(
                         arrival.status,
                         arrival.vehicleOrientation,
                         arrival.vehicleLastUpdateTime,
                         arrival.predicted,
                         isFocused,
+                        isPinnedMarker,
                     ) {
                         VehicleMarkerFactory.get(
                             context        = mapContext,
@@ -462,7 +593,10 @@ fun HomeMapScreen(
                             routeShortName = arrival.routeShortName,
                             lastUpdateMs   = arrival.vehicleLastUpdateTime,
                             isPredicted    = arrival.predicted,
-                            showLabel      = isFocused,
+                            statusLabel    = statusLabel,
+                            showLabel      = isFocused || isPinnedMarker,
+                            isPinned       = isPinnedMarker,
+                            transitType    = arrival.transitType,
                         )
                     }
                     Marker(
@@ -529,6 +663,12 @@ fun HomeMapScreen(
                             ArrivalStatus.EARLY     -> VehicleMarkerFactory.COLOR_EARLY
                             else                    -> VehicleMarkerFactory.COLOR_SCHEDULED
                         }
+                        val statusLabel = when (arrival.status) {
+                            ArrivalStatus.ON_TIME   -> "On time"
+                            ArrivalStatus.DELAYED   -> "Delayed"
+                            ArrivalStatus.EARLY     -> "Early"
+                            else                    -> "Scheduled"
+                        }
                         val markerResult = remember(
                             arrival.status,
                             arrival.vehicleOrientation,
@@ -542,6 +682,7 @@ fun HomeMapScreen(
                                 routeShortName = arrival.routeShortName,
                                 lastUpdateMs   = arrival.vehicleLastUpdateTime,
                                 isPredicted    = arrival.predicted,
+                                statusLabel    = statusLabel,
                                 showLabel      = false,
                             )
                         }
@@ -571,8 +712,8 @@ fun HomeMapScreen(
             }
         }
 
-        // ── My Location FAB — always visible, overlaid on map ─────────────────
-        // FAB tracks the sheet's live drag offset so it's never covered.
+        // ── Map controls — traffic toggle stacked above My Location FAB ─────
+        // Both buttons track the sheet's live drag offset so they're never covered.
         val fabDensity = LocalDensity.current
         val sheetOffsetPx by remember { derivedStateOf {
             try { scaffoldState.bottomSheetState.requireOffset() }
@@ -582,56 +723,123 @@ fun HomeMapScreen(
             (contentHeightPx - sheetOffsetPx).toDp().coerceAtLeast(handleBarHeight)
         } + 16.dp
         val fabContext = LocalContext.current
-        SmallFloatingActionButton(
-            onClick = {
-                val granted = ContextCompat.checkSelfPermission(
-                    fabContext, Manifest.permission.ACCESS_FINE_LOCATION
-                ) == PackageManager.PERMISSION_GRANTED
-                if (granted) {
-                    viewModel.fetchUserLocation(recenterCamera = true)
-                } else {
-                    scope.launch {
-                        val result = snackbarHostState.showSnackbar(
-                            "Location permission required",
-                            actionLabel = "Settings",
-                            duration = SnackbarDuration.Long,
-                        )
-                        if (result == SnackbarResult.ActionPerformed) {
-                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                data = Uri.fromParts("package", fabContext.packageName, null)
-                            }
-                            fabContext.startActivity(intent)
-                        }
-                    }
-                }
-            },
+
+        // Traffic toggle sits 8dp above the My Location FAB
+        // Both are in one Column so they share the same right edge automatically.
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 16.dp, bottom = fabBottomPadding),
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
-            elevation = FloatingActionButtonDefaults.elevation(2.dp),
-            shape = RoundedCornerShape(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            if (uiState.isLocatingUser) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    strokeWidth = 2.dp,
-                )
-            } else {
-                Icon(
-                    Icons.Default.MyLocation,
-                    contentDescription = "My Location",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp),
-                )
+            // Notification bell — with unread badge
+            Box {
+                Surface(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .shadow(2.dp, RoundedCornerShape(10.dp))
+                        .clickable { navController.navigate(Routes.NOTIFICATIONS) },
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (unreadNotifCount > 0)
+                        MaterialTheme.colorScheme.primaryContainer
+                    else
+                        MaterialTheme.colorScheme.surfaceContainerLowest,
+                    border = BorderStroke(1.dp, if (unreadNotifCount > 0)
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                    else
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        Icon(
+                            if (unreadNotifCount > 0) Icons.Default.Notifications else Icons.Default.NotificationsNone,
+                            contentDescription = "Notifications",
+                            tint = if (unreadNotifCount > 0)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+                if (unreadNotifCount > 0) {
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 4.dp, y = (-4).dp)
+                            .size(16.dp),
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.error,
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            Text(
+                                if (unreadNotifCount > 9) "9+" else unreadNotifCount.toString(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onError,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
+            }
+            // My Location button — same 40dp Surface so sizes match exactly
+            Surface(
+                modifier = Modifier
+                    .size(40.dp)
+                    .shadow(2.dp, RoundedCornerShape(10.dp))
+                    .clickable {
+                        val granted = ContextCompat.checkSelfPermission(
+                            fabContext, Manifest.permission.ACCESS_FINE_LOCATION
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (granted) {
+                            viewModel.fetchUserLocation(recenterCamera = true)
+                        } else {
+                            scope.launch {
+                                val result = snackbarHostState.showSnackbar(
+                                    "Location permission required",
+                                    actionLabel = "Settings",
+                                    duration = SnackbarDuration.Long,
+                                )
+                                if (result == SnackbarResult.ActionPerformed) {
+                                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = Uri.fromParts("package", fabContext.packageName, null)
+                                    }
+                                    fabContext.startActivity(intent)
+                                }
+                            }
+                        }
+                    },
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+            ) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                    if (uiState.isLocatingUser) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Icon(
+                            Icons.Default.MyLocation,
+                            contentDescription = "My Location",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
             }
         }
 
-        // ── "Where to?" search bar (original design: inline, not a sheet) ────
+        } // close content Box
+        } // close BottomSheetScaffold content
+        // ── "Where to?" search bar ─────────────────────────────────────────
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
+                .statusBarsPadding()
                 .padding(top = 12.dp, start = 16.dp, end = 16.dp)
                 .fillMaxWidth(),
         ) {
@@ -639,9 +847,6 @@ fun HomeMapScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .shadow(elevation = if (uiState.searchActive) 6.dp else 3.dp, shape = RoundedCornerShape(12.dp))
-                    // Tapping anywhere on the bar activates search, even if the
-                    // TextField already holds focus (in which case onFocusChanged
-                    // would not fire, leaving the bar stuck in an inactive state).
                     .clickable { viewModel.setSearchActive(true) },
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.surface,
@@ -723,14 +928,22 @@ fun HomeMapScreen(
             // ── Results dropdown ─────────────────────────────────────────────
             if (uiState.searchActive) {
                 Spacer(Modifier.height(4.dp))
+                // Cap the dropdown height so it never slides under the keyboard.
+                // WindowInsets.ime gives us the live keyboard height; we subtract it
+                // (plus the search bar + status bar area) from the screen height.
+                val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+                val screenH = LocalConfiguration.current.screenHeightDp.dp
+                // Clamp the dropdown so it never overlaps the arrivals peek sheet.
+                // peekHeight already includes the nav bar inset.
+                val maxDropdownHeight = (screenH - 170.dp - imeBottom - peekHeight).coerceIn(80.dp, 480.dp)
                 Surface(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().heightIn(max = maxDropdownHeight),
                     shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.surface,
                     shadowElevation = 4.dp,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
                 ) {
-                    Column {
+                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                         if (uiState.searchQuery.isEmpty()) {
                             // Empty state — quick actions
                             ListItem(
@@ -900,8 +1113,7 @@ fun HomeMapScreen(
             }
         }
 
-        }
-    }
+        } // close outer Box
     }
 
     // ── Reminder bottom sheet (long-press on an arrival row) ─────────────────
@@ -919,34 +1131,89 @@ fun HomeMapScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 36.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Text(
-                    if (hasReminder) "Reminder set" else "Set a reminder",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    "${arrival.routeShortName} \u2192 ${arrival.tripHeadsign.ifBlank { arrival.routeLongName }}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(4.dp))
-
-                if (hasReminder) {
-                    val existingReminder = activeReminders.find { it.tripId == arrival.tripId }
-                    if (existingReminder != null) {
-                        val notifyAtMs = arrivalEpochMs - existingReminder.minutesBefore * 60_000L
+                // ── Header ───────────────────────────────────────────────────
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(
+                                if (hasReminder) MaterialTheme.colorScheme.primaryContainer
+                                else MaterialTheme.colorScheme.secondaryContainer
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            if (hasReminder) Icons.Default.NotificationsActive
+                            else Icons.Default.NotificationsNone,
+                            contentDescription = null,
+                            tint = if (hasReminder) MaterialTheme.colorScheme.onPrimaryContainer
+                                   else MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
-                            "You'll be notified at ${timeFmt.format(java.util.Date(notifyAtMs))} " +
-                            "(${existingReminder.minutesBefore} min before)",
+                            if (hasReminder) "Reminder set" else "Set a reminder",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            "${arrival.routeShortName} \u2192 ${arrival.tripHeadsign.ifBlank { arrival.routeLongName }}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    Spacer(Modifier.height(4.dp))
+                }
+
+                HorizontalDivider()
+
+                if (hasReminder) {
+                    // ── Active reminder info card ─────────────────────────────
+                    val existingReminder = activeReminders.find { it.tripId == arrival.tripId }
+                    if (existingReminder != null) {
+                        val notifyAtMs = arrivalEpochMs - existingReminder.minutesBefore * 60_000L
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.Schedule,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(28.dp),
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        timeFmt.format(java.util.Date(notifyAtMs)),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    )
+                                    Text(
+                                        "${existingReminder.minutesBefore} minutes before arrival",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
+                                    )
+                                }
+                            }
+                        }
+                    }
                     OutlinedButton(
                         onClick = { viewModel.cancelReminder(arrival) },
                         modifier = Modifier.fillMaxWidth(),
@@ -960,45 +1227,92 @@ fun HomeMapScreen(
                         Text("Cancel reminder")
                     }
                 } else {
+                    // ── Set flow ─────────────────────────────────────────────
                     val minutesOptions = listOf(5, 10, 15)
-                    val arrivalMinutes = arrival.minutesUntilArrival
+                    val arrivalMinutes = arrival.liveMinutesUntilArrival()
                     val allDisabled = minutesOptions.all { arrivalMinutes <= it }
 
                     if (allDisabled) {
-                        Text(
-                            "The bus arrives too soon to set a reminder.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.errorContainer,
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                                Text(
+                                    "The bus arrives too soon to set a reminder.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                )
+                            }
+                        }
                     } else {
                         Text(
-                            "Notify me before arrival:",
-                            style = MaterialTheme.typography.labelMedium,
+                            "Notify me before arrival",
+                            style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
                             minutesOptions.forEach { mins ->
                                 val enabled = arrivalMinutes > mins
                                 val notifyAtMs2 = arrivalEpochMs - mins * 60_000L
                                 val notifyAtLabel = timeFmt.format(java.util.Date(notifyAtMs2))
-                                FilterChip(
-                                    selected = false,
-                                    enabled = enabled,
-                                    onClick = { viewModel.setReminder(arrival, mins) },
-                                    label = {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Text("$mins min")
-                                            Text(
-                                                "at $notifyAtLabel",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = if (enabled)
-                                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                                else
-                                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-                                            )
-                                        }
-                                    },
-                                )
+                                val bgColor = if (enabled)
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                else
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                val contentColor = if (enabled)
+                                    MaterialTheme.colorScheme.onSecondaryContainer
+                                else
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .clickable(enabled = enabled) { viewModel.setReminder(arrival, mins) },
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = bgColor,
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 16.dp, horizontal = 8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Notifications,
+                                            contentDescription = null,
+                                            tint = contentColor,
+                                            modifier = Modifier.size(22.dp),
+                                        )
+                                        Text(
+                                            "$mins min",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = contentColor,
+                                        )
+                                        Text(
+                                            "at $notifyAtLabel",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = contentColor.copy(alpha = if (enabled) 0.75f else 1f),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -1023,7 +1337,7 @@ private fun StopMiniCard(
 ) {
     val liveCount      = arrivals.count { it.status != ArrivalStatus.SCHEDULED }
     val nextArrival    = arrivals.firstOrNull()
-    val nextMinutes    = nextArrival?.minutesUntilArrival
+    val nextMinutes    = nextArrival?.liveMinutesUntilArrival()
 
     Row(
         modifier = modifier
@@ -1143,6 +1457,7 @@ fun StopBottomSheet(
     onArrivalFocus: (ObaArrival) -> Unit,
     onArrivalDetails: (ObaArrival) -> Unit,
     onArrivalLongPress: (ObaArrival) -> Unit = {},
+    onUnpinTrip: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -1168,6 +1483,13 @@ fun StopBottomSheet(
                         "#${stop.code}",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (stop.routeIds.isNotEmpty()) {
+                    Text(
+                        "${stop.routeIds.size} route${if (stop.routeIds.size == 1) "" else "s"}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
@@ -1297,44 +1619,65 @@ fun StopBottomSheet(
             val scheduledOnly = arrivals.filter { it.status == ArrivalStatus.SCHEDULED }
             val hasLive = liveArrivals.isNotEmpty()
 
-            if (!hasLive && scheduledOnly.isNotEmpty()) {
-                // No active buses right now — show a friendly nudge then list scheduled
+            if (!hasLive && scheduledOnly.isNotEmpty() && pinnedTripVehicleId == null) {
+                // No live vehicles tracked — show a timetable-mode nudge before the scheduled list
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 10.dp)
                         .background(
-                            MaterialTheme.colorScheme.surfaceContainerLow,
-                            RoundedCornerShape(10.dp),
+                            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f),
+                            RoundedCornerShape(12.dp),
                         )
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Icon(
-                        Icons.Default.Schedule,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Text(
-                        "No active buses right now. Next scheduled services:",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f),
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(
+                                MaterialTheme.colorScheme.secondaryContainer,
+                                RoundedCornerShape(10.dp),
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Timetable mode",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            "No live vehicles are being tracked for this stop right now. Showing scheduled departures.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
 
-            // Sort: pinned trip always first, upcoming arrivals next, departed trips last.
+            // Sort: pinned trip always first, then live trips by time, then scheduled by time,
+            // departed trips last. This means pinning a scheduled trip still shows live arrivals
+            // immediately after it rather than burying them below other scheduled trips.
             val sortedArrivals = arrivals.sortedWith(
                 compareBy(
-                    // pinned trip stays at top even after map tap clears the camera focus
+                    // pinned trip stays at top
                     { if (pinnedTripVehicleId != null && it.vehicleId == pinnedTripVehicleId) 0 else 1 },
                     // departed (< 0) sink to bottom
-                    { if (it.minutesUntilArrival < 0) 1 else 0 },
+                    { if (it.liveMinutesUntilArrival() < 0) 1 else 0 },
+                    // live (predicted) trips before scheduled trips
+                    { if (it.predicted) 0 else 1 },
                     // within each group, sort by time ascending
-                    { it.minutesUntilArrival },
+                    { it.liveMinutesUntilArrival() },
                 ),
             )
 
@@ -1364,17 +1707,24 @@ fun StopBottomSheet(
                     state = listState,
                     modifier = Modifier.heightIn(max = 280.dp),
                 ) {
-                    items(sortedArrivals.take(visibleCount), key = { it.tripId }) { arrival ->
+                    items(
+                        sortedArrivals.take(visibleCount),
+                        key = { "${it.tripId}_${it.scheduledArrivalTime}" }
+                    ) { arrival ->
                         val hasReminder = activeReminders.any { it.tripId == arrival.tripId }
                         ArrivalRow(
                             arrival = arrival,
                             isSelected = arrival.vehicleId != null
                                 && arrival.vehicleId == focusedVehicleId,
+                            isPinned = pinnedTripVehicleId != null
+                                && arrival.vehicleId == pinnedTripVehicleId,
                             hasReminder = hasReminder,
                             sidecarEnabled = sidecarEnabled,
                             onClick = { onArrivalFocus(arrival) },
                             onLongClick = { onArrivalLongPress(arrival) },
                             onViewDetails = { onArrivalDetails(arrival) },
+                            onUnpin = if (pinnedTripVehicleId != null && arrival.vehicleId == pinnedTripVehicleId)
+                                onUnpinTrip else null,
                             modifier = Modifier.animateItem(),
                         )
                     }
@@ -1464,11 +1814,13 @@ fun StopBottomSheet(
 fun ArrivalRow(
     arrival: ObaArrival,
     isSelected: Boolean = false,
+    isPinned: Boolean = false,
     hasReminder: Boolean = false,
     sidecarEnabled: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
     onViewDetails: () -> Unit,
+    onUnpin: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val statusColor = when (arrival.status) {
@@ -1478,7 +1830,7 @@ fun ArrivalRow(
         ArrivalStatus.SCHEDULED -> MaterialTheme.colorScheme.onSurfaceVariant
         ArrivalStatus.UNKNOWN   -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    val minutes = arrival.minutesUntilArrival
+    val minutes = arrival.liveMinutesUntilArrival()
     val missed = minutes < 0
     val headwayMins = arrival.headwaySecs?.let { it / 60 }
 
@@ -1519,7 +1871,7 @@ fun ArrivalRow(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .combinedClickable(
-                onClick = onClick,
+                onClick = if (isPinned && onUnpin != null) onUnpin else onClick,
                 onLongClick = if (sidecarEnabled) onLongClick else null,
             ),
         shape = RoundedCornerShape(16.dp),
@@ -1603,9 +1955,12 @@ fun ArrivalRow(
                 // Row 2: via / long name (optional)
                 // For long-name routes, show headsign as the secondary line if it adds info.
                 val via = if (isLongRouteName) {
-                    arrival.tripHeadsign.ifBlank { null }
+                    arrival.tripHeadsign
+                        .ifBlank { null }
+                        ?.takeIf { it.trim().lowercase() != arrival.routeShortName.trim().lowercase() }
                 } else if (arrival.tripHeadsign.isNotBlank() && arrival.routeLongName.isNotBlank()) {
                     arrival.routeLongName
+                        .takeIf { it.trim().lowercase() != arrival.tripHeadsign.trim().lowercase() }
                 } else null
                 if (via != null) {
                     Text(
@@ -1616,14 +1971,48 @@ fun ArrivalRow(
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     )
                 }
-                // Row 3: status label (Already departed / Early / Delayed / On Time)
-                if (statusLabel != null) {
+                // Row 3: status label (only for missed or headway trips)
+                if (statusLabel != null && (missed || arrival.isHeadway)) {
                     Text(
                         statusLabel,
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = statusColor,
                     )
+                }
+                // Row 3b: scheduled time + real-time deviation
+                if (!arrival.isHeadway && arrival.scheduledArrivalTime > 0) {
+                    val schedFmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                    val schedStr = schedFmt.format(java.util.Date(arrival.scheduledArrivalTime))
+                    val deviationText = when {
+                        !arrival.predicted ->
+                            " · not real-time"
+                        arrival.predicted && arrival.status == ArrivalStatus.DELAYED && arrival.deviationMinutes > 0 ->
+                            " · +${arrival.deviationMinutes} min late"
+                        arrival.predicted && arrival.status == ArrivalStatus.EARLY && arrival.deviationMinutes != 0 ->
+                            " · ${kotlin.math.abs(arrival.deviationMinutes)} min early"
+                        arrival.predicted && arrival.status == ArrivalStatus.ON_TIME ->
+                            " · arrives on time"
+                        else -> ""
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(0.dp),
+                    ) {
+                        Text(
+                            "Sched $schedStr",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (deviationText.isNotEmpty()) {
+                            Text(
+                                deviationText,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = badgeColor,
+                            )
+                        }
+                    }
                 }
                 // Row 4: reminder indicator
                 if (hasReminder) {
@@ -1666,21 +2055,32 @@ fun ArrivalRow(
                         verticalArrangement = Arrangement.Center,
                     ) {
                         if (missed) {
-                            // Show how many minutes ago the bus left
+                            // Show how long ago the bus left in plain language
                             val agoMin = -minutes
-                            Text(
-                                if (agoMin < 60) "-$agoMin" else "-${agoMin / 60}h ${agoMin % 60}m",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = badgeColor,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            )
-                            Text(
-                                "AGO",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = badgeColor.copy(alpha = 0.75f),
-                                letterSpacing = 1.sp,
-                            )
+                            if (agoMin == 0) {
+                                Text(
+                                    "Just now",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = badgeColor,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                )
+                            } else {
+                                Text(
+                                    if (agoMin < 60) "${agoMin}m" else "${agoMin / 60}h ${agoMin % 60}m",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    color = badgeColor,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                )
+                                Text(
+                                    "ago",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = badgeColor.copy(alpha = 0.75f),
+                                    letterSpacing = 1.sp,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                )
+                            }
                         } else if (arrival.isHeadway && !arrival.predicted && headwayMins != null) {
                             // Headway service — no real-time; show interval window
                             Text(
@@ -1695,6 +2095,7 @@ fun ArrivalRow(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = badgeColor.copy(alpha = 0.75f),
                                 letterSpacing = 1.sp,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                             )
                         } else if (minutes == 0) {
                             Text(
@@ -1702,23 +2103,42 @@ fun ArrivalRow(
                                 style = MaterialTheme.typography.titleLarge,
                                 color = badgeColor,
                                 fontWeight = FontWeight.Bold,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                             )
                         } else {
                             // Prefix "~" for headway trips that have real-time prediction
                             val prefix = if (arrival.isHeadway && arrival.predicted) "~" else ""
-                            Text(
-                                prefix + if (minutes < 60) "$minutes" else "${minutes / 60}h ${minutes % 60}m",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = badgeColor,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            )
-                            Text(
-                                if (minutes < 60) "MIN" else "",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = badgeColor.copy(alpha = 0.75f),
-                                letterSpacing = 1.sp,
-                            )
+                            if (minutes < 60) {
+                                Text(
+                                    "$prefix$minutes",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    color = badgeColor,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                )
+                                Text(
+                                    "MIN",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = badgeColor.copy(alpha = 0.75f),
+                                    letterSpacing = 1.sp,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                )
+                            } else {
+                                Text(
+                                    "$prefix${minutes / 60}h",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    color = badgeColor,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                )
+                                Text(
+                                    "${minutes % 60}m",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = badgeColor.copy(alpha = 0.75f),
+                                    letterSpacing = 1.sp,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                )
+                            }
                         }
                     }
                 }
@@ -1751,16 +2171,19 @@ fun ArrivalRow(
  * Draws a bus STOP marker: a rounded-square badge with a classic bus-stop pole
  * symbol (▐▌ bar + pole), anchored at the bottom-centre.
  *
- * - Unselected: white fill, brand-red border, red symbol
- * - Selected:   solid brand-red fill, white symbol, white outer glow ring
+ * - Unselected: white fill, transit-type-colored border and symbol
+ * - Selected:   solid transit-type-color fill, white symbol, outer glow ring
  *
+ * The badge color is driven by [TransitType.mapColor], keeping all country-specific
+ * color constants in one place (the TransitType enum in Models.kt).
  * Visually distinct from the teardrop VEHICLE markers.
  */
 private fun createStopMarkerBitmap(
     context: Context,
     isSelected: Boolean,
-    brandColor: Int,
+    transitType: TransitType,
 ): BitmapDescriptor {
+    val brandColor = transitType.mapColor
     val dp      = context.resources.displayMetrics.density
     val size    = 22f * dp          // badge side length
     val corner  = 6f  * dp          // rounded corner radius
@@ -1831,29 +2254,194 @@ private fun createStopMarkerBitmap(
     }
     canvas.drawPath(notchBorderPath, borderPaint)
 
-    // ─ bus stop symbol: horizontal canopy bar + vertical pole ─
+    // ─ transit-type symbol ─
     val symColor = if (isSelected) android.graphics.Color.WHITE else brandColor
     val symPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
         color = symColor
         style = android.graphics.Paint.Style.FILL
     }
-    val bx     = left + size * 0.5f          // symbol centre x
-    val by     = top  + size * 0.5f          // symbol centre y
-    val barW   = size * 0.56f
-    val barH   = size * 0.14f
-    val barTop = by - size * 0.18f
-    // canopy bar
-    canvas.drawRoundRect(
-        android.graphics.RectF(bx - barW / 2, barTop, bx + barW / 2, barTop + barH),
-        barH / 2, barH / 2, symPaint,
-    )
-    // pole
-    val poleW = size * 0.10f
-    canvas.drawRoundRect(
-        android.graphics.RectF(bx - poleW / 2, barTop + barH, bx + poleW / 2, by + size * 0.28f),
-        poleW / 2, poleW / 2, symPaint,
-    )
+    val bx = left + size * 0.5f   // symbol centre x
+    val by = top  + size * 0.5f   // symbol centre y
+
+    when (transitType) {
+        TransitType.BUS -> {
+            // Bus-stop symbol: horizontal canopy bar + vertical pole
+            val barW   = size * 0.56f
+            val barH   = size * 0.14f
+            val barTop = by - size * 0.18f
+            canvas.drawRoundRect(
+                android.graphics.RectF(bx - barW / 2, barTop, bx + barW / 2, barTop + barH),
+                barH / 2, barH / 2, symPaint,
+            )
+            val poleW = size * 0.10f
+            canvas.drawRoundRect(
+                android.graphics.RectF(bx - poleW / 2, barTop + barH, bx + poleW / 2, by + size * 0.28f),
+                poleW / 2, poleW / 2, symPaint,
+            )
+        }
+
+        TransitType.COMMUTER_RAIL -> {
+            // KTM Commuter symbol: two heavy parallel rails + three cross-ties (classic heavy-rail track plan view)
+            val railW  = size * 0.60f
+            val railH  = size * 0.12f
+            val railR  = railH / 2
+            val topY   = by - size * 0.23f
+            val botY   = by + size * 0.10f
+            // top rail
+            canvas.drawRoundRect(
+                android.graphics.RectF(bx - railW / 2, topY, bx + railW / 2, topY + railH),
+                railR, railR, symPaint,
+            )
+            // bottom rail
+            canvas.drawRoundRect(
+                android.graphics.RectF(bx - railW / 2, botY, bx + railW / 2, botY + railH),
+                railR, railR, symPaint,
+            )
+            // three cross-ties (left, centre, right)
+            val tieW = size * 0.11f
+            val tieH = botY - topY + railH
+            listOf(-railW * 0.38f, 0f, railW * 0.38f).forEach { offsetX ->
+                canvas.drawRoundRect(
+                    android.graphics.RectF(bx + offsetX - tieW / 2, topY, bx + offsetX + tieW / 2, topY + tieH),
+                    tieW / 2, tieW / 2, symPaint,
+                )
+            }
+        }
+
+        TransitType.LRT_TRAM -> {
+            // LRT symbol: tram/car silhouette – rounded car body on a single track with two wheels
+            val bodyW  = size * 0.56f
+            val bodyH  = size * 0.26f
+            val bodyTop = by - size * 0.28f
+            // car body
+            canvas.drawRoundRect(
+                android.graphics.RectF(bx - bodyW / 2, bodyTop, bx + bodyW / 2, bodyTop + bodyH),
+                bodyH * 0.30f, bodyH * 0.30f, symPaint,
+            )
+            // track/rail line below the car
+            val trackY  = bodyTop + bodyH + size * 0.06f
+            val trackH  = size * 0.09f
+            canvas.drawRoundRect(
+                android.graphics.RectF(bx - bodyW * 0.55f, trackY, bx + bodyW * 0.55f, trackY + trackH),
+                trackH / 2, trackH / 2, symPaint,
+            )
+            // two wheels (small filled circles)
+            val wheelR = size * 0.09f
+            val wheelY = trackY + trackH / 2
+            listOf(-bodyW * 0.28f, bodyW * 0.28f).forEach { ox ->
+                canvas.drawCircle(bx + ox, wheelY, wheelR, symPaint)
+            }
+        }
+
+        TransitType.MRT_METRO -> {
+            // MRT/Metro symbol: bold circle ring (universal underground/metro icon)
+            val ringPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = symColor
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = size * 0.15f
+            }
+            val ringR = size * 0.28f
+            canvas.drawCircle(bx, by - size * 0.04f, ringR, ringPaint)
+            // centre dot for metro "station" feel
+            val dotR = size * 0.08f
+            canvas.drawCircle(bx, by - size * 0.04f, dotR, symPaint)
+        }
+
+        TransitType.MONORAIL -> {
+            // Monorail symbol: single elevated beam + short vertical strut below
+            val beamW = size * 0.58f
+            val beamH = size * 0.13f
+            val beamTop = by - size * 0.10f
+            canvas.drawRoundRect(
+                android.graphics.RectF(bx - beamW / 2, beamTop, bx + beamW / 2, beamTop + beamH),
+                beamH / 2, beamH / 2, symPaint,
+            )
+            val strutW = size * 0.11f
+            canvas.drawRoundRect(
+                android.graphics.RectF(bx - strutW / 2, beamTop + beamH, bx + strutW / 2, by + size * 0.28f),
+                strutW / 2, strutW / 2, symPaint,
+            )
+        }
+
+        TransitType.FERRY -> {
+            // Ferry symbol: two layered wave arcs
+            val wavePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = symColor
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = size * 0.12f
+                strokeCap = android.graphics.Paint.Cap.ROUND
+            }
+            listOf(-size * 0.14f, size * 0.14f).forEach { offsetY ->
+                val path = android.graphics.Path()
+                val waveW = size * 0.22f
+                path.moveTo(bx - waveW * 2, by + offsetY)
+                path.quadTo(bx - waveW, by + offsetY - size * 0.12f, bx, by + offsetY)
+                path.quadTo(bx + waveW, by + offsetY + size * 0.12f, bx + waveW * 2, by + offsetY)
+                canvas.drawPath(path, wavePaint)
+            }
+        }
+
+        TransitType.MIXED -> {
+            // Mixed-mode symbol: bold "+" (interchange)
+            val armLen = size * 0.24f
+            val armW   = size * 0.13f
+            // horizontal arm
+            canvas.drawRoundRect(
+                android.graphics.RectF(bx - armLen, by - armW / 2, bx + armLen, by + armW / 2),
+                armW / 2, armW / 2, symPaint,
+            )
+            // vertical arm
+            canvas.drawRoundRect(
+                android.graphics.RectF(bx - armW / 2, by - armLen, bx + armW / 2, by + armLen),
+                armW / 2, armW / 2, symPaint,
+            )
+        }
+    }
 
     return BitmapDescriptorFactory.fromBitmap(bmp)
 }
 
+/**
+ * A small pill-shaped chip showing the route short name (e.g. "D11").
+ * Placed flat on the map at the midpoint of each overview route polyline.
+ */
+private fun createRouteLabelBitmap(
+    context: Context,
+    label: String,
+): BitmapDescriptor {
+    val dp       = context.resources.displayMetrics.density
+    val textSize = 11f * dp
+    val hPad     = 7f  * dp
+    val vPad     = 4f  * dp
+    val corner   = 99f * dp // fully pill-shaped
+
+    val textPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color    = android.graphics.Color.WHITE
+        this.textSize = textSize
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+        textAlign = android.graphics.Paint.Align.CENTER
+    }
+    val textBounds = android.graphics.Rect()
+    textPaint.getTextBounds(label, 0, label.length, textBounds)
+
+    val w = (textBounds.width() + hPad * 2).toInt().coerceAtLeast(1)
+    val h = (textBounds.height() + vPad * 2).toInt().coerceAtLeast(1)
+
+    val bmp    = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(bmp)
+
+    val bgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.argb(210, 31, 60, 136) // dark blue, semi-opaque
+        style = android.graphics.Paint.Style.FILL
+    }
+    canvas.drawRoundRect(
+        android.graphics.RectF(0f, 0f, w.toFloat(), h.toFloat()),
+        corner, corner, bgPaint
+    )
+
+    // Draw text centred vertically
+    val textY = h / 2f - (textPaint.descent() + textPaint.ascent()) / 2f
+    canvas.drawText(label, w / 2f, textY, textPaint)
+
+    return BitmapDescriptorFactory.fromBitmap(bmp)
+}

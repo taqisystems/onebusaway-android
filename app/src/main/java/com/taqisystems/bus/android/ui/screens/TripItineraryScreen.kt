@@ -1,5 +1,11 @@
 package com.taqisystems.bus.android.ui.screens
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -17,13 +23,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.taqisystems.bus.android.service.DestinationAlertService
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
@@ -41,19 +48,98 @@ import com.taqisystems.bus.android.ui.viewmodel.SelectedItineraryHolder
 import java.text.SimpleDateFormat
 import java.util.*
 
-// ─── Colour constants ─────────────────────────────────────────────────────────
-private val WalkColor    = Color(0xFF9E9E9E)
-private val TransitColor = Primary
+// ─── Colour constants & transit-mode helpers ────────────────────────────────
+private val WalkColor = Color(0xFF9E9E9E)
+
+/**
+ * Returns the brand color for a given OTP [mode] string.
+ * Colors match [TransitType.mapColor] so markers and route lines are consistent.
+ * To adapt for a different country, change the hex values here and in TransitType.
+ */
+private fun legColor(mode: String): Color = when (mode.uppercase()) {
+    "BUS"      -> Color(0xFFDC2626)  // red   – bus
+    "TRAM"     -> Color(0xFF9B2335)  // ruby  – LRT (Ampang / Kelana Jaya)
+    "RAIL"     -> Color(0xFFE35205)  // orange – KTM Komuter
+    "SUBWAY"   -> Color(0xFF007C3E)  // green  – MRT (Kajang / Putrajaya)
+    "FERRY"    -> Color(0xFF0369A1)  // ocean blue
+    "MONORAIL" -> Color(0xFF5CB85C)  // light green – KL Monorail
+    else       -> Color(0xFFDC2626)
+}
+
+/** Returns the appropriate Material icon for a given OTP [mode] string. */
+private fun legIcon(mode: String) = when (mode.uppercase()) {
+    "TRAM"     -> Icons.Default.Tram
+    "RAIL"     -> Icons.Default.Train
+    "SUBWAY"   -> Icons.Default.DirectionsSubway
+    "FERRY"    -> Icons.Default.DirectionsBoat
+    "MONORAIL" -> Icons.Default.Train
+    else       -> Icons.Default.DirectionsBus
+}
+
+/** Short human-readable label for a given OTP [mode] string. */
+private fun legModeLabel(mode: String): String = when (mode.uppercase()) {
+    "BUS"      -> "Bus"
+    "TRAM"     -> "LRT"
+    "RAIL"     -> "Commuter Rail"
+    "SUBWAY"   -> "MRT"
+    "FERRY"    -> "Ferry"
+    "MONORAIL" -> "Monorail"
+    "WALK"     -> "Walk"
+    else       -> mode
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TripItineraryScreen(navController: NavController) {
-    val activity = LocalContext.current as ComponentActivity
+    val context = LocalContext.current
+    val activity = context as ComponentActivity
     val viewModel: TripPlannerViewModel = viewModel(viewModelStoreOwner = activity, factory = TripPlannerViewModelFactory())
     val uiState by viewModel.uiState.collectAsState()
     // SelectedItineraryHolder is set synchronously before navigate() is called,
     // so it is always non-null when this screen first composes.
     val itinerary = SelectedItineraryHolder.itinerary ?: uiState.selectedItinerary
+
+    // ── Destination Alert state ───────────────────────────────────────────────
+    var alertActive by remember { mutableStateOf(false) }
+    var showPermissionRationale by remember { mutableStateOf(false) }
+
+    // Last transit leg provides the destination + before-stop coordinates
+    val lastTransitLeg = itinerary?.legs?.lastOrNull { it.transitLeg }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            lastTransitLeg?.let { leg -> startDestinationAlert(context, leg, onStarted = { alertActive = true }) }
+        } else {
+            showPermissionRationale = true
+        }
+    }
+
+    fun toggleAlert() {
+        if (alertActive) {
+            context.stopService(Intent(context, DestinationAlertService::class.java))
+            alertActive = false
+        } else {
+            val hasPermission = ContextCompat.checkSelfPermission(
+                context, Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+            if (hasPermission) {
+                lastTransitLeg?.let { leg -> startDestinationAlert(context, leg, onStarted = { alertActive = true }) }
+            } else {
+                permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
+        }
+    }
+
+    if (showPermissionRationale) {
+        AlertDialog(
+            onDismissRequest = { showPermissionRationale = false },
+            title = { Text("Location Permission Required") },
+            text = { Text("Destination alerts need your GPS location to detect when you're approaching your stop. Please grant location permission in Settings.") },
+            confirmButton = { TextButton(onClick = { showPermissionRationale = false }) { Text("OK") } },
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -80,6 +166,25 @@ fun TripItineraryScreen(navController: NavController) {
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
             )
+        },
+        floatingActionButton = {
+            if (lastTransitLeg != null) {
+                ExtendedFloatingActionButton(
+                    onClick = { toggleAlert() },
+                    icon = {
+                        Icon(
+                            if (alertActive) Icons.Default.NotificationsOff else Icons.Default.NotificationsActive,
+                            contentDescription = null,
+                        )
+                    },
+                    text = {
+                        Text(if (alertActive) "Stop Alert" else "Destination Alert")
+                    },
+                    containerColor = if (alertActive) MaterialTheme.colorScheme.error
+                                     else MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                )
+            }
         },
     ) { innerPadding ->
         if (itinerary == null) {
@@ -193,7 +298,7 @@ private fun ItineraryMap(itinerary: OtpItinerary) {
                 if (pts.size >= 2) {
                     if (leg.transitLeg) {
                         Polyline(points = pts, color = Color.White, width = 20f, zIndex = 1f)
-                        Polyline(points = pts, color = TransitColor, width = 12f, zIndex = 2f)
+                        Polyline(points = pts, color = legColor(leg.mode), width = 12f, zIndex = 2f)
                     } else {
                         // Walk: grey, thinner
                         Polyline(points = pts, color = Color.White, width = 12f, zIndex = 1f)
@@ -258,6 +363,11 @@ private fun ItineraryMap(itinerary: OtpItinerary) {
         }
 
         // ── Legend chip ──────────────────────────────────────────────────────
+        // Dynamic legend: one dot per distinct transit mode present + Walk
+        val legendModes = remember(itinerary) {
+            itinerary.legs.filter { it.transitLeg }
+                .map { it.mode.uppercase() }.distinct()
+        }
         Row(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -268,9 +378,11 @@ private fun ItineraryMap(itinerary: OtpItinerary) {
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.size(10.dp).background(TransitColor, CircleShape))
-            Text("Bus", style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface)
+            legendModes.forEach { mode ->
+                Box(Modifier.size(10.dp).background(legColor(mode), CircleShape))
+                Text(legModeLabel(mode), style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface)
+            }
             Box(Modifier.size(10.dp).background(WalkColor, CircleShape))
             Text("Walk", style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface)
@@ -310,11 +422,11 @@ private fun ItinerarySummaryHeader(itinerary: OtpItinerary) {
                     verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     transitLegs.forEach { leg ->
                         Surface(shape = RoundedCornerShape(50),
-                            color = MaterialTheme.colorScheme.primary) {
+                            color = legColor(leg.mode)) {
                             Row(Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.DirectionsBus, null,
-                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                Icon(legIcon(leg.mode), null,
+                                    tint = Color.White,
                                     modifier = Modifier.size(14.dp))
                                 Spacer(Modifier.width(4.dp))
                                 Text(leg.routeShortName?.takeIf { it.isNotBlank() } ?: leg.mode,
@@ -331,7 +443,7 @@ private fun ItinerarySummaryHeader(itinerary: OtpItinerary) {
                 itinerary.legs.forEach { leg ->
                     val fraction = (leg.endTime - leg.startTime).toFloat() / totalDist
                     Box(Modifier.weight(fraction).fillMaxHeight().background(
-                        if (leg.transitLeg) MaterialTheme.colorScheme.primary
+                        if (leg.transitLeg) legColor(leg.mode)
                         else MaterialTheme.colorScheme.secondaryContainer))
                 }
             }
@@ -354,8 +466,8 @@ private fun LegItem(leg: OtpLeg) {
     val fmt = SimpleDateFormat("h:mm a", Locale.getDefault())
     val startTime = fmt.format(Date(leg.startTime))
     val durationMin = ((leg.endTime - leg.startTime) / 60_000).toInt()
-    val lineColor = if (leg.transitLeg) TransitColor else MaterialTheme.colorScheme.outlineVariant
-    val dotColor  = if (leg.transitLeg) TransitColor else MaterialTheme.colorScheme.outline
+    val lineColor = if (leg.transitLeg) legColor(leg.mode) else MaterialTheme.colorScheme.outlineVariant
+    val dotColor  = if (leg.transitLeg) legColor(leg.mode) else MaterialTheme.colorScheme.outline
 
     Column {
         Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp)) {
@@ -374,21 +486,22 @@ private fun LegItem(leg: OtpLeg) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(8.dp))
                 if (leg.transitLeg) {
+                    val modeColor = legColor(leg.mode)
                     Card(shape = RoundedCornerShape(8.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = TransitColor.copy(alpha = 0.08f)),
+                            containerColor = modeColor.copy(alpha = 0.08f)),
                         modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.DirectionsBus, null,
-                                    tint = TransitColor, modifier = Modifier.size(18.dp))
+                                Icon(legIcon(leg.mode), null,
+                                    tint = modeColor, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text("Board", fontWeight = FontWeight.Bold,
-                                    color = TransitColor,
+                                Text("Board · ${legModeLabel(leg.mode)}", fontWeight = FontWeight.Bold,
+                                    color = modeColor,
                                     style = MaterialTheme.typography.bodyMedium)
                                 Spacer(Modifier.width(6.dp))
                                 Box(Modifier.clip(RoundedCornerShape(4.dp))
-                                    .background(TransitColor)
+                                    .background(modeColor)
                                     .padding(horizontal = 7.dp, vertical = 2.dp)) {
                                     Text(
                                         leg.routeShortName?.takeIf { it.isNotBlank() }
@@ -474,3 +587,32 @@ private fun DestinationNode(lastLeg: OtpLeg) {
     }
 }
 
+// ─── Destination Alert helpers ────────────────────────────────────────────────
+
+/**
+ * Starts the [DestinationAlertService] for the given transit [leg].
+ *
+ * The "before" stop is the last intermediate stop in the leg (the stop just before the
+ * destination). If there are no intermediate stops, the leg's origin (`from`) is used as
+ * the before-stop so stage-1 "Get Ready" is triggered when the bus leaves that stop.
+ */
+private fun startDestinationAlert(
+    context: android.content.Context,
+    leg: com.taqisystems.bus.android.data.model.OtpLeg,
+    onStarted: () -> Unit,
+) {
+    val beforeStop = leg.intermediateStops.lastOrNull()
+    val beforeLat  = beforeStop?.lat  ?: leg.from.lat
+    val beforeLon  = beforeStop?.lon  ?: leg.from.lon
+
+    val intent = Intent(context, DestinationAlertService::class.java).apply {
+        action = DestinationAlertService.ACTION_START
+        putExtra(DestinationAlertService.EXTRA_DEST_NAME,  leg.to.name.ifBlank { "Destination" })
+        putExtra(DestinationAlertService.EXTRA_DEST_LAT,   leg.to.lat)
+        putExtra(DestinationAlertService.EXTRA_DEST_LON,   leg.to.lon)
+        putExtra(DestinationAlertService.EXTRA_BEFORE_LAT, beforeLat)
+        putExtra(DestinationAlertService.EXTRA_BEFORE_LON, beforeLon)
+    }
+    context.startForegroundService(intent)
+    onStarted()
+}

@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -24,6 +25,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.taqisystems.bus.android.data.model.ArrivalStatus
 import com.taqisystems.bus.android.data.model.ObaArrival
+import com.taqisystems.bus.android.data.model.SavedRoute
 import com.taqisystems.bus.android.ui.navigation.Routes
 import com.taqisystems.bus.android.ui.theme.*
 import com.taqisystems.bus.android.ui.viewmodel.StopDetailsViewModel
@@ -39,7 +41,8 @@ fun StopDetailsScreen(
     viewModel: StopDetailsViewModel = viewModel(factory = StopDetailsViewModelFactory()),
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val savedStops by viewModel.savedStops.collectAsState()
+    val savedStops  by viewModel.savedStops.collectAsState()
+    val savedRoutes by viewModel.savedRoutes.collectAsState()
     val activeReminders by viewModel.activeReminders.collectAsState()
     val isSaved = savedStops.any { it.id == stopId }
 
@@ -79,35 +82,89 @@ fun StopDetailsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 36.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Text(
-                    if (sheetHasReminder) "Reminder set" else "Set a reminder",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    "${arrival.routeShortName} → ${arrival.tripHeadsign.ifBlank { arrival.routeLongName }}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(4.dp))
-
-                if (sheetHasReminder) {
-                    // ── Cancel flow ───────────────────────────────────────────
-                    val existingReminder = activeReminders.find { it.tripId == arrival.tripId }
-                    if (existingReminder != null) {
-                        val notifyAtMs = arrivalEpochMs - existingReminder.minutesBefore * 60_000L
+                // ── Header ──────────────────────────────────────────────────
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(
+                                if (sheetHasReminder) MaterialTheme.colorScheme.primaryContainer
+                                else MaterialTheme.colorScheme.secondaryContainer
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            if (sheetHasReminder) Icons.Default.NotificationsActive
+                            else Icons.Default.NotificationsNone,
+                            contentDescription = null,
+                            tint = if (sheetHasReminder) MaterialTheme.colorScheme.onPrimaryContainer
+                                   else MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
-                            "You’ll be notified at ${timeFmt.format(java.util.Date(notifyAtMs))} " +
-                            "(${existingReminder.minutesBefore} min before)",
+                            if (sheetHasReminder) "Reminder set" else "Set a reminder",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            "${arrival.routeShortName} → ${arrival.tripHeadsign.ifBlank { arrival.routeLongName }}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    Spacer(Modifier.height(4.dp))
+                }
+
+                HorizontalDivider()
+
+                if (sheetHasReminder) {
+                    // ── Active reminder info card ────────────────────────────
+                    val existingReminder = activeReminders.find { it.tripId == arrival.tripId }
+                    if (existingReminder != null) {
+                        val notifyAtMs = arrivalEpochMs - existingReminder.minutesBefore * 60_000L
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.Schedule,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(28.dp),
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        timeFmt.format(java.util.Date(notifyAtMs)),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    )
+                                    Text(
+                                        "${existingReminder.minutesBefore} minutes before arrival",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
+                                    )
+                                }
+                            }
+                        }
+                    }
                     OutlinedButton(
                         onClick = { viewModel.cancelReminder(arrival) },
                         modifier = Modifier.fillMaxWidth(),
@@ -121,46 +178,92 @@ fun StopDetailsScreen(
                         Text("Cancel reminder")
                     }
                 } else {
-                    // ── Set flow ─────────────────────────────────────────────
+                    // ── Set flow ────────────────────────────────────────────
                     val minutesOptions = listOf(5, 10, 15)
-                    val arrivalMinutes = arrival.minutesUntilArrival
+                    val arrivalMinutes = arrival.liveMinutesUntilArrival()
                     val allDisabled = minutesOptions.all { arrivalMinutes <= it }
 
                     if (allDisabled) {
-                        Text(
-                            "The bus arrives too soon to set a reminder.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.errorContainer,
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                                Text(
+                                    "The bus arrives too soon to set a reminder.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                )
+                            }
+                        }
                     } else {
                         Text(
-                            "Notify me before arrival:",
-                            style = MaterialTheme.typography.labelMedium,
+                            "Notify me before arrival",
+                            style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
                             minutesOptions.forEach { mins ->
                                 val enabled = arrivalMinutes > mins
                                 val notifyAtMs = arrivalEpochMs - mins * 60_000L
                                 val notifyAtLabel = timeFmt.format(java.util.Date(notifyAtMs))
-                                FilterChip(
-                                    selected = false,
-                                    enabled = enabled,
-                                    onClick = { viewModel.setReminder(arrival, mins) },
-                                    label = {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Text("$mins min")
-                                            Text(
-                                                "at $notifyAtLabel",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = if (enabled)
-                                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                                else
-                                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-                                            )
-                                        }
-                                    },
-                                )
+                                val bgColor = if (enabled)
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                else
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                val contentColor = if (enabled)
+                                    MaterialTheme.colorScheme.onSecondaryContainer
+                                else
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .clickable(enabled = enabled) { viewModel.setReminder(arrival, mins) },
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = bgColor,
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 16.dp, horizontal = 8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Notifications,
+                                            contentDescription = null,
+                                            tint = contentColor,
+                                            modifier = Modifier.size(22.dp),
+                                        )
+                                        Text(
+                                            "$mins min",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = contentColor,
+                                        )
+                                        Text(
+                                            "at $notifyAtLabel",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = contentColor.copy(alpha = if (enabled) 0.75f else 1f),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -175,13 +278,15 @@ fun StopDetailsScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
+            MediumTopAppBar(
                 title = {
                     Column {
                         Text(
                             stopName,
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         )
                         if (stopCode.isNotBlank()) {
                             Text(
@@ -225,7 +330,7 @@ fun StopDetailsScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
+                colors = TopAppBarDefaults.mediumTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
                     scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                 ),
@@ -256,26 +361,89 @@ fun StopDetailsScreen(
                                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                             }
                         }
+                        // ── Routes row (always visible) ───────────────────
+                        if (uiState.knownRoutes.isNotEmpty()) {
+                            item {
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    items(uiState.knownRoutes, key = { "chip_" + it.routeId }) { route ->
+                                        AssistChip(
+                                            onClick = {
+                                                navController.navigate(
+                                                    Routes.routeDetails(
+                                                        tripId     = route.tripId,
+                                                        routeId    = route.routeId,
+                                                        routeShort = route.shortName,
+                                                        routeLong  = route.longName,
+                                                        headsign   = route.headsign,
+                                                        stopId     = stopId,
+                                                    )
+                                                )
+                                            },
+                                            label = { Text(route.shortName) },
+                                            leadingIcon = {
+                                                Icon(
+                                                    Icons.Default.DirectionsBus,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp),
+                                                )
+                                            },
+                                        )
+                                    }
+                                }
+                                HorizontalDivider()
+                            }
+                        }
                         if (uiState.arrivals.isEmpty()) {
                             item {
                                 Box(
-                                    modifier = Modifier.fillMaxWidth().padding(48.dp),
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 32.dp),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Text("No upcoming arrivals", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
+                            // Show routes known to serve this stop (from cache) so the user can still bookmark them
+                            if (uiState.knownRoutes.isNotEmpty()) {
+                                item {
+                                    Text(
+                                        "Routes serving this stop",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                    )
+                                }
+                                items(uiState.knownRoutes, key = { "known_" + it.routeId }) { route ->
+                                    KnownRouteRow(
+                                        route       = route,
+                                        onClick     = {
+                                            navController.navigate(
+                                                Routes.routeDetails(
+                                                    tripId     = route.tripId,
+                                                    routeId    = route.routeId,
+                                                    routeShort = route.shortName,
+                                                    routeLong  = route.longName,
+                                                    headsign   = route.headsign,
+                                                    stopId     = stopId,
+                                                )
+                                            )
+                                        },
+                                    )
+                                    HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
+                                }
+                            }
                         } else {
-                            items(uiState.arrivals) { arrival ->
+                            items(uiState.arrivals, key = { "${it.tripId}_${it.scheduledArrivalTime}" }) { arrival ->
                                 val hasReminder = activeReminders.any { it.tripId == arrival.tripId }
                                 DetailedArrivalRow(
                                     arrival = arrival,
                                     sidecarEnabled = uiState.sidecarEnabled,
                                     hasReminder = hasReminder,
                                     reminderLoading = uiState.reminderLoading,
-                                    onBellClick = {
-                                        viewModel.openReminderSheet(arrival)
-                                    },
+                                    onBellClick = { viewModel.openReminderSheet(arrival) },
                                     onClick = {
                                         navController.navigate(
                                             Routes.routeDetails(
@@ -297,6 +465,75 @@ fun StopDetailsScreen(
         }
     }
 }
+
+// ─── Known-route row (shown when arrivals are empty) ────────────────────────
+
+@Composable
+private fun KnownRouteRow(
+    route: SavedRoute,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Route-number tile
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.primaryContainer),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (route.shortName.isNotBlank()) {
+                Text(
+                    route.shortName,
+                    style      = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color      = MaterialTheme.colorScheme.onPrimaryContainer,
+                    maxLines   = 1,
+                )
+            } else {
+                Icon(
+                    Icons.Default.DirectionsBus,
+                    contentDescription = null,
+                    tint     = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                route.headsign.ifBlank { route.longName }.ifBlank { route.shortName },
+                style      = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines   = 1,
+                overflow   = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+            if (route.longName.isNotBlank() && route.longName != route.headsign) {
+                Text(
+                    route.longName,
+                    style   = MaterialTheme.typography.bodySmall,
+                    color   = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Icon(
+            Icons.Default.ChevronRight,
+            contentDescription = null,
+            tint     = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+// ─── Detailed arrival row ────────────────────────────────────────────────────
 
 @Composable
 private fun DetailedArrivalRow(
@@ -321,7 +558,7 @@ private fun DetailedArrivalRow(
         ArrivalStatus.SCHEDULED -> null
         ArrivalStatus.UNKNOWN   -> null
     }
-    val minutes = arrival.minutesUntilArrival
+    val minutes = arrival.liveMinutesUntilArrival()
     val headwayMins = arrival.headwaySecs?.let { it / 60 }
     val headwayUntil = arrival.headwayEndTime?.let {
         val fmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
@@ -437,16 +674,44 @@ private fun DetailedArrivalRow(
                         )
                     }
                 } else if (statusLabel != null) {
-                    val delayNote = if (arrival.status == ArrivalStatus.DELAYED && arrival.deviationMinutes > 0)
-                        " (+${arrival.deviationMinutes} min)" else ""
-                    Text(
-                        statusLabel + delayNote,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = statusColor,
-                    )
+                    // non-headway: only show label for missed buses; deviation is shown on the sched line
+                }
+                // Scheduled time + real-time deviation
+                if (!arrival.isHeadway && arrival.scheduledArrivalTime > 0) {
+                    val schedFmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                    val schedStr = schedFmt.format(java.util.Date(arrival.scheduledArrivalTime))
+                    val deviationText = when {
+                        !arrival.predicted ->
+                            " · not real-time"
+                        arrival.predicted && arrival.status == ArrivalStatus.DELAYED && arrival.deviationMinutes > 0 ->
+                            " · +${arrival.deviationMinutes} min late"
+                        arrival.predicted && arrival.status == ArrivalStatus.EARLY && arrival.deviationMinutes != 0 ->
+                            " · ${kotlin.math.abs(arrival.deviationMinutes)} min early"
+                        arrival.predicted && arrival.status == ArrivalStatus.ON_TIME ->
+                            " · arrives on time"
+                        else -> ""
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(0.dp),
+                    ) {
+                        Text(
+                            "Sched $schedStr",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (deviationText.isNotEmpty()) {
+                            Text(
+                                deviationText,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = timeColor,
+                            )
+                        }
+                    }
                 }
             }
+
 
             // ── Bell icon (reminder) ──────────────────────────────────────────
             if (sidecarEnabled) {
