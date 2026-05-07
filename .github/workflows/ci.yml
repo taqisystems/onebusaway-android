@@ -11,8 +11,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-and-build:
-    name: Unit Tests & Debug APK
+  unit-tests:
+    name: Unit Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -39,33 +39,26 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
-      # ── 4. Reconstruct local.properties from secrets ─────────────────────────
+      # ── 4. Reconstruct local.properties ─────────────────────────────────────
       #
-      #  Add the following secrets to your GitHub repository
-      #  (Settings → Secrets and variables → Actions → New repository secret):
-      #
-      #   ONESIGNAL_APP_ID       — OneSignal App ID
-      #   GOOGLE_MAPS_API_KEY    — Google Maps API key (Maps SDK for Android)
-      #   APP_NAME               — e.g. "Kelantan Bus"
-      #   APP_PRIMARY_COLOR      — e.g. "#C62828"
-      #   APP_SECONDARY_COLOR    — e.g. "#E53935"
-      #   APP_TERTIARY_COLOR     — e.g. "#37474F"
-      #
-      #  Signing secrets are intentionally omitted — this pipeline only builds
-      #  debug APKs. Add STORE_FILE_BASE64, STORE_PASSWORD, KEY_ALIAS, and
-      #  KEY_PASSWORD if you later add a release job.
+      #  Gradle validates ONESIGNAL_APP_ID and GOOGLE_MAPS_API_KEY at
+      #  configuration time, so we supply dummy placeholder strings here.
+      #  Unit tests never make real network calls so no actual credentials
+      #  are needed. No repository       #  are needed. No repository secrets are required for this pipeline.
+      #  are needed. No repository secrets are required for this pipeline.
+secrets are required for this pipeline.
       #
       - name: Create local.properties
         run: |
           cat > local.properties << EOF
           sdk.dir=$ANDROID_SDK_ROOT
-          ONESIGNAL_APP_ID=${{ secrets.ONESIGNAL_APP_ID }}
-          GOOGLE_MAPS_API_KEY=${{ secrets.GOOGLE_MAPS_API_KEY }}
+          ONESIGNAL_APP_ID=ci-placeholder
+          GOOGLE_MAPS_API_KEY=ci-placeholder
           OBA_USER_AGENT=KelantanBus
-          APP_NAME=${{ secrets.APP_NAME }}
-          APP_PRIMARY_COLOR=${{ secrets.APP_PRIMARY_COLOR }}
-          APP_SECONDARY_COLOR=${{ secrets.APP_SECONDARY_COLOR }}
-          APP_TERTIARY_COLOR=${{ secrets.APP_TERTIARY_COLOR }}
+          APP_NAME=Kelantan Bus
+          APP_PRIMARY_COLOR=#C62828
+          APP_SECONDARY_COLOR=#E53935
+          APP_TERTIARY_COLOR=#37474F
           EOF
 
       # ── 5. Make gradlew executable ───────────────────────────────────────────
@@ -85,14 +78,3 @@ jobs:
           path: app/build/reports/tests/testKelantanDebugUnitTest/
           retention-days: 14
 
-      # ── 8. Build debug APK ───────────────────────────────────────────────────
-      - name: Build debug APK
-        run: ./gradlew assembleKelantanDebug --no-daemon
-
-      # ── 9. Upload APK artifact ───────────────────────────────────────────────
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-kelantan-debug
-          path: app/build/outputs/apk/kelantan/debug/*.apk
-          retention-days: 14
