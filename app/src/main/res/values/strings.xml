@@ -141,6 +141,7 @@
     <!-- %s = routeShort -->
     <string name="reminders_route">Route %s</string>
     <string name="reminders_bus_trip">Bus trip</string>
+    <string name="notif_reminder_title">Arriving Soon</string>
     <string name="notif_reminder_body">Arriving in %1$d min · %2$s</string>
     <string name="notif_reminder_body_no_stop">Arriving in %d min</string>
 
@@ -274,6 +275,9 @@
     <string name="map_updated_ms">Updated %1$d min %2$ds ago</string>
     <string name="map_timetable_mode">Timetable mode</string>
     <!-- %d = live count -->
+    <string name="section_live">Live</string>
+    <string name="section_scheduled">Scheduled</string>
+    <string name="chip_timetable_only">Timetable only</string>
     <string name="map_live_count">%d live</string>
     <!-- %d = scheduled count -->
     <string name="map_scheduled_count">%d scheduled</string>
@@ -460,4 +464,6 @@
     <string name="vehicle_elapsed_s">%ds ago</string>
     <!-- %1$d = minutes, %2$d = seconds -->
     <string name="vehicle_elapsed_ms">%1$dm %2$ds ago</string>
+    <string name="hero_next">NEXT</string>
+    <string name="label_min">min</string>
 </resources>

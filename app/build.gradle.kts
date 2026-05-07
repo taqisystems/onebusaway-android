@@ -60,8 +60,8 @@ android {
     // Each flavour can override res/ (logo, launcher icon, strings) without
     // touching any Kotlin source code.
     //
-    //   ./gradlew assembleKelantanDebug      ← current Kelantan build
-    //   ./gradlew assembleGenericDebug       ← blank white-label template
+    //   ./gradlew assembleKelantanbusDebug    ← current Kelantan build
+    //   ./gradlew assembleGenericDebug         ← blank white-label template
     //
     // A white-labeller only needs to:
     //   1. Add a new flavour block below.
@@ -70,7 +70,7 @@ android {
     //   4. Supply their own API keys in local.properties.
     flavorDimensions += "brand"
     productFlavors {
-        create("kelantan") {
+        create("kelantanbus") {
             dimension = "brand"
             // applicationId unchanged — uses defaultConfig value
         }

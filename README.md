@@ -21,6 +21,7 @@ A real-time transit app for the Kelantan public bus network — native Android, 
 | Route timeline | Live vehicle position overlaid on stop timeline |
 | Saved stops | Persist favourite stops across sessions |
 | Multi-region | 11 Malaysian regions selectable at runtime |
+| Localisation | English + Bahasa Malaysia UI strings |
 
 ---
 
@@ -93,13 +94,13 @@ APP_TERTIARY_COLOR=#37474F
 
 ```bash
 # Debug APK
-./gradlew assembleKelantanDebug
+./gradlew assembleKelantanbusDebug
 
 # Signed release APK
-./gradlew assembleKelantanRelease
+./gradlew assembleKelantanbusRelease
 
 # Install on connected device
-./gradlew installKelantanDebug
+./gradlew installKelantanbusDebug
 ```
 
 ---
@@ -178,7 +179,7 @@ KelantanBus/
 ├── app/
 │   ├── build.gradle.kts
 │   └── src/
-│       ├── kelantan/res/          ← Kelantan brand resources
+│       ├── kelantanbus/res/        ← Kelantan brand resources
 │       ├── generic/res/           ← White-label template
 │       └── main/
 │           ├── AndroidManifest.xml
@@ -186,7 +187,8 @@ KelantanBus/
 │           │   ├── drawable/      ← default logo + icons
 │           │   ├── mipmap-*/      ← adaptive launcher icons
 │           │   ├── raw/alert.wav  ← default notification sound
-│           │   └── values/
+│           │   ├── values/        ← English strings + themes
+│           │   └── values-ms/     ← Bahasa Malaysia strings
 │           └── java/com/taqisystems/bus/android/
 │               ├── KelantanBusApplication.kt
 │               ├── MainActivity.kt

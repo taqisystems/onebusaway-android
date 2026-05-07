@@ -17,9 +17,20 @@ import androidx.core.content.ContextCompat
 import android.graphics.Bitmap
 import android.speech.RecognizerIntent
 import com.taqisystems.bus.android.data.model.TransitType
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -53,6 +64,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -160,9 +173,6 @@ fun HomeMapScreen(
 
     // Sheet state — persistent BottomSheetScaffold with peek
     val selectedStop = uiState.selectedStop
-    // When true, sheet collapses to show drag handle + header row only
-    var userMinimized by remember { mutableStateOf(false) }
-    LaunchedEffect(selectedStop?.id) { userMinimized = false }
     val sheetState = rememberStandardBottomSheetState(
         initialValue = SheetValue.PartiallyExpanded,
         // Allow the sheet to be dragged freely in both directions.
@@ -224,16 +234,25 @@ fun HomeMapScreen(
     }
 
     // Partial-expand to 1-row peek when a stop is tapped; collapse when cleared.
-    LaunchedEffect(selectedStop) {
+    // Auto-pan: centre the map on the selected stop so it appears above the peek sheet.
+    LaunchedEffect(selectedStop?.id) {
         if (selectedStop == null) {
             scaffoldState.bottomSheetState.partialExpand()
         } else {
             scaffoldState.bottomSheetState.partialExpand()
+            cameraPositionState.animate(
+                com.google.android.gms.maps.CameraUpdateFactory.newLatLng(
+                    LatLng(selectedStop.lat, selectedStop.lon),
+                )
+            )
         }
     }
 
     val searchFocusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
+
+    // Dismiss search overlay on system back button
+    BackHandler(enabled = uiState.searchActive) { viewModel.setSearchActive(false) }
 
     // Auto-focus search field when activated; clear focus when deactivated
     // Clearing focus is critical — without it the BasicTextField retains focus after
@@ -344,16 +363,6 @@ fun HomeMapScreen(
     val navBarInset      = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val handleBarHeight  = 52.dp
     val headerRowHeight  = 80.dp  // 12dp pad-top + headlineMedium + sub-labels + 12dp pad-bottom
-    // Reset minimized when user drags sheet back up
-    LaunchedEffect(sheetState.currentValue) {
-        if (sheetState.currentValue == SheetValue.Expanded) userMinimized = false
-    }
-    val peekHeight = when {
-        userMinimized                       -> handleBarHeight + headerRowHeight
-        selectedStop == null                -> handleBarHeight
-        uiState.pinnedTripVehicleId != null -> navBarInset + 330.dp  // 300dp + ~30dp for 2-line name + via/sched lines
-        else                               -> navBarInset + 300.dp
-    }
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0),
@@ -371,11 +380,25 @@ fun HomeMapScreen(
             )
         },
     ) { innerPadding ->
+        val peekHeight = when {
+            selectedStop == null                -> handleBarHeight
+            uiState.pinnedTripVehicleId != null -> navBarInset + 330.dp
+            else                               -> navBarInset + 300.dp
+        }
         Box(Modifier.fillMaxSize()) {
         BottomSheetScaffold(
             scaffoldState = scaffoldState,
             sheetPeekHeight = peekHeight,
             sheetDragHandle = {
+                // Bounce the pill down once on first appearance to hint "drag me up"
+                val dragHint = remember { androidx.compose.animation.core.Animatable(0f) }
+                LaunchedEffect(selectedStop?.id) {
+                    if (selectedStop != null) {
+                        delay(500)
+                        dragHint.animateTo(6f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow))
+                        dragHint.animateTo(0f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow))
+                    }
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -384,6 +407,7 @@ fun HomeMapScreen(
                 ) {
                     Box(
                         Modifier
+                            .offset(y = dragHint.value.dp)
                             .width(40.dp)
                             .height(4.dp)
                             .clip(RoundedCornerShape(2.dp))
@@ -393,19 +417,24 @@ fun HomeMapScreen(
             },
             sheetContainerColor = MaterialTheme.colorScheme.surface,
             sheetContent = {
-                if (selectedStop != null) {
+                Crossfade(
+                    targetState = selectedStop,
+                    animationSpec = tween(220),
+                    label = "stopSheet",
+                ) { sheetStop ->
+                if (sheetStop != null) {
                     StopBottomSheet(
-                        stop = selectedStop,
+                        stop = sheetStop,
                         arrivals = uiState.arrivals,
                         loading = uiState.arrivalsLoading,
                         lastUpdated = uiState.arrivalsLastUpdated,
-                        isSaved = savedStops.any { it.id == selectedStop.id },
+                        isSaved = savedStops.any { it.id == sheetStop.id },
                         focusedVehicleId = uiState.focusedVehicle?.vehicleId,
                         pinnedTripVehicleId = uiState.pinnedTripVehicleId,
                         extraBottomPadding = innerPadding.calculateBottomPadding(),
                         onToggleSave = {
-                            val wasSaved = savedStops.any { it.id == selectedStop.id }
-                            viewModel.toggleSaved(selectedStop)
+                            val wasSaved = savedStops.any { it.id == sheetStop.id }
+                            viewModel.toggleSaved(sheetStop)
                             scope.launch {
                                 snackbarHostState.showSnackbar(
                                     if (wasSaved) stopRemovedText else stopSavedText,
@@ -415,28 +444,26 @@ fun HomeMapScreen(
                         },
                         onViewDetails = {
                             navController.navigate(
-                                Routes.stopDetails(selectedStop.id, selectedStop.name, selectedStop.code),
+                                Routes.stopDetails(sheetStop.id, sheetStop.name, sheetStop.code),
                             )
                         },
                         onDismiss = { viewModel.clearSelectedStop() },
-                        onMinimize = {
-                            userMinimized = true
-                            scope.launch { scaffoldState.bottomSheetState.partialExpand() }
-                        },
+
                         onUnpinTrip = { viewModel.unpinTrip() },
                         onCenterOnStop = {
                             scope.launch {
+                                scaffoldState.bottomSheetState.partialExpand()
                                 cameraPositionState.animate(
                                     com.google.android.gms.maps.CameraUpdateFactory.newLatLngZoom(
-                                        com.google.android.gms.maps.model.LatLng(selectedStop.lat, selectedStop.lon),
-                                        cameraPositionState.position.zoom.coerceAtLeast(15f),
+                                        com.google.android.gms.maps.model.LatLng(sheetStop.lat, sheetStop.lon),
+                                        cameraPositionState.position.zoom.coerceAtLeast(16f),
                                     ),
                                 )
                             }
                         },
                         sidecarEnabled = uiState.sidecarEnabled,
                         activeReminders = activeReminders,
-                        onArrivalLongPress = { arrival ->
+                        onArrivalReminder = { arrival ->
                             if (uiState.sidecarEnabled) viewModel.openReminderSheet(arrival)
                         },
                         onArrivalFocus = { arrival ->
@@ -450,10 +477,11 @@ fun HomeMapScreen(
                                     routeShort = arrival.routeShortName,
                                     routeLong = arrival.routeLongName,
                                     headsign = arrival.tripHeadsign,
-                                    stopId = selectedStop.id,
+                                    stopId = sheetStop.id,
                                 ),
                             )
                         },
+
                     )
                 } else {
                     Box(
@@ -469,6 +497,7 @@ fun HomeMapScreen(
                         )
                     }
                 }
+                } // end Crossfade
             },
         ) {
             // Track the content box height so we can offset the FAB above the live sheet position
@@ -495,7 +524,7 @@ fun HomeMapScreen(
             uiSettings = MapUiSettings(myLocationButtonEnabled = false, zoomControlsEnabled = false),
             onMapClick = {
                 viewModel.clearFocusedVehicle()
-                scope.launch { scaffoldState.bottomSheetState.partialExpand() }
+                viewModel.clearSelectedStop()
             },
         ) {
             val mapContext = LocalContext.current
@@ -860,6 +889,19 @@ fun HomeMapScreen(
 
         } // close content Box
         } // close BottomSheetScaffold content
+
+        // ── Search scrim — tap-outside-to-dismiss overlay ─────────────────
+        if (uiState.searchActive) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.35f))
+                    .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) {
+                        viewModel.setSearchActive(false)
+                    },
+            )
+        }
+
         // ── "Where to?" search bar ─────────────────────────────────────────
         Column(
             modifier = Modifier
@@ -1259,24 +1301,33 @@ fun HomeMapScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(
-                                if (hasReminder) MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.secondaryContainer
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            if (hasReminder) Icons.Default.NotificationsActive
-                            else Icons.Default.NotificationsNone,
-                            contentDescription = null,
-                            tint = if (hasReminder) MaterialTheme.colorScheme.onPrimaryContainer
-                                   else MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.size(24.dp),
-                        )
+                    AnimatedContent(
+                        targetState = hasReminder,
+                        transitionSpec = {
+                            (scaleIn(initialScale = 0.6f) + fadeIn(tween(200)))
+                                .togetherWith(scaleOut(targetScale = 0.6f) + fadeOut(tween(150)))
+                        },
+                        label = "reminderBellSwap",
+                    ) { isSet ->
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(
+                                    if (isSet) MaterialTheme.colorScheme.primaryContainer
+                                    else MaterialTheme.colorScheme.secondaryContainer
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                if (isSet) Icons.Default.NotificationsActive
+                                else Icons.Default.NotificationsNone,
+                                contentDescription = null,
+                                tint = if (isSet) MaterialTheme.colorScheme.onPrimaryContainer
+                                       else MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
                     }
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
@@ -1496,7 +1547,7 @@ private fun StopMiniCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 else -> {
-                    val chipLabel = if (liveCount > 0) "$liveCount live service${if (liveCount > 1) "s" else ""}" else "${arrivals.size} scheduled"
+                    val chipLabel = if (liveCount > 0) pluralStringResource(R.plurals.map_live_services, liveCount, liveCount) else stringResource(R.string.chip_timetable_only)
                     val chipColor = if (liveCount > 0) MaterialTheme.colorScheme.primaryContainer
                                    else MaterialTheme.colorScheme.surfaceContainerHigh
                     val chipText  = if (liveCount > 0) MaterialTheme.colorScheme.onPrimaryContainer
@@ -1571,11 +1622,10 @@ fun StopBottomSheet(
     onToggleSave: () -> Unit = {},
     onViewDetails: () -> Unit,
     onDismiss: () -> Unit,
-    onMinimize: () -> Unit = {},
     onCenterOnStop: () -> Unit = {},
     onArrivalFocus: (ObaArrival) -> Unit,
     onArrivalDetails: (ObaArrival) -> Unit,
-    onArrivalLongPress: (ObaArrival) -> Unit = {},
+    onArrivalReminder: (ObaArrival) -> Unit = {},
     onUnpinTrip: () -> Unit = {},
 ) {
     Column(
@@ -1585,6 +1635,10 @@ fun StopBottomSheet(
             .padding(bottom = extraBottomPadding),
     ) {
         // ── Header ─────────────────────────────────────────────────────────
+        val headerAgencyLabel = remember(arrivals) {
+            arrivals.map { it.agencyName }.filter { it.isNotBlank() }.distinct()
+                .joinToString(" · ").takeIf { it.isNotBlank() }
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1611,11 +1665,18 @@ fun StopBottomSheet(
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
+                if (headerAgencyLabel != null) {
+                    Text(
+                        headerAgencyLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             // Centre map on this stop
             IconButton(onClick = onCenterOnStop) {
                 Icon(
-                    Icons.Default.NearMe,
+                    Icons.Default.Room,
                     contentDescription = stringResource(R.string.map_centre_on_stop_cd),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1629,17 +1690,10 @@ fun StopBottomSheet(
                            else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            // Minimize chevron — collapses sheet to peek while keeping the stop selected
-            IconButton(onClick = onMinimize) {
-                Icon(
-                    Icons.Default.KeyboardArrowDown,
-                    contentDescription = stringResource(R.string.map_minimize_cd),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
 
         // ── Arrivals section ───────────────────────────────────────────────
+        Column {
         // Tick every second so the "updated X ago" label stays current
         var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
         LaunchedEffect(Unit) { while (true) { delay(1_000); nowMs = System.currentTimeMillis() } }
@@ -1663,15 +1717,19 @@ fun StopBottomSheet(
         ) {
             Text(
                 stringResource(R.string.map_arrivals),
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
             // Arrival count summary chip — visible in peek state so the user
             // immediately knows how many services are coming
             if (!loading && arrivals.isNotEmpty()) {
                 val liveCount = arrivals.count { it.status != ArrivalStatus.SCHEDULED }
-                val label = if (liveCount > 0) "$liveCount live" else "${arrivals.size} scheduled"
+                val label = if (liveCount > 0)
+                    stringResource(R.string.map_live_count, liveCount)
+                else
+                    stringResource(R.string.map_scheduled_count, arrivals.size)
                 val chipColor = if (liveCount > 0)
                     MaterialTheme.colorScheme.primaryContainer
                 else
@@ -1701,32 +1759,109 @@ fun StopBottomSheet(
             }
         }
 
-        HorizontalDivider(
-            color = MaterialTheme.colorScheme.outlineVariant,
-            modifier = Modifier.padding(horizontal = 16.dp),
-        )
-
-        if (loading) {
+        // P5 – shrinking freshness bar: full at t=0, empty at t=30s
+        if (lastUpdated != null) {
+            val elapsed30 = ((nowMs - lastUpdated) / 1000f).coerceIn(0f, 30f)
+            val freshness = 1f - elapsed30 / 30f
+            val freshnessColor by animateColorAsState(
+                targetValue = when {
+                    freshness > 0.5f -> MaterialTheme.colorScheme.primary
+                    freshness > 0.2f -> MaterialTheme.colorScheme.tertiary
+                    else             -> MaterialTheme.colorScheme.error
+                },
+                animationSpec = tween(600),
+                label = "freshnessColor",
+            )
             LinearProgressIndicator(
+                progress = { freshness },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                color = MaterialTheme.colorScheme.primary,
+                    .height(2.dp),
+                color = freshnessColor,
+                trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
             )
-        } else if (arrivals.isEmpty()) {
+        } else {
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+        }
+
+        if (loading && arrivals.isEmpty()) {
+            // P4 – shimmer skeleton while first load
+            repeat(3) { i ->
+                val shimmerAlpha by rememberInfiniteTransition(label = "shimmer$i").animateFloat(
+                    initialValue = 0.15f, targetValue = 0.35f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(900 + i * 120, easing = LinearEasing),
+                        repeatMode = RepeatMode.Reverse,
+                        initialStartOffset = StartOffset(i * 160),
+                    ),
+                    label = "shimmerAlpha$i",
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(48.dp)
+                            .height(20.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = shimmerAlpha)),
+                    )
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.65f)
+                                .height(14.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = shimmerAlpha)),
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.4f)
+                                .height(11.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = shimmerAlpha * 0.7f)),
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = shimmerAlpha)),
+                    )
+                }
+            }
+        } else if (!loading && arrivals.isEmpty()) {
+            val emptyFloat by rememberInfiniteTransition(label = "emptyFloat").animateFloat(
+                initialValue = 0f, targetValue = -7f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1400, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+                label = "emptyBusFloat",
+            )
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 20.dp),
+                    .padding(horizontal = 16.dp, vertical = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Icon(
                     Icons.Default.DirectionsBus,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.outlineVariant,
-                    modifier = Modifier.size(36.dp),
+                    modifier = Modifier.size(40.dp).offset(y = emptyFloat.dp),
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
                 Text(
                     stringResource(R.string.route_no_services),
                     style = MaterialTheme.typography.bodyMedium,
@@ -1805,6 +1940,10 @@ fun StopBottomSheet(
             val allVisible = visibleCount >= sortedArrivals.size
             val remaining  = (sortedArrivals.size - visibleCount).coerceAtLeast(0)
             val listState = rememberLazyListState()
+            // Adaptive list height: fills ~45% of screen height so the expanded sheet
+            // makes proper use of the available space instead of capping at 280 dp.
+            val screenHeightDp = LocalConfiguration.current.screenHeightDp
+            val listMaxHeight = (screenHeightDp * 0.45f).dp
 
             // Auto-focus the fastest arrival the first time arrivals load for this stop
             var autoFocused by remember(stop.id) { mutableStateOf(false) }
@@ -1830,35 +1969,228 @@ fun StopBottomSheet(
                 }
             }
 
+            // ── Hero row: next upcoming service, pinned above the scroll list ─
+            val heroArrival = remember(sortedArrivals) {
+                sortedArrivals.firstOrNull { it.liveMinutesUntilArrival() >= 0 }
+            }
+            AnimatedContent(
+                targetState = heroArrival,
+                transitionSpec = { fadeIn(tween(250)) togetherWith fadeOut(tween(250)) },
+                label = "heroArrival",
+            ) { nextBus ->
+                if (nextBus != null) {
+                    val heroStatusColor by animateColorAsState(
+                        targetValue = when (nextBus.status) {
+                            ArrivalStatus.ON_TIME -> StatusOnTime
+                            ArrivalStatus.DELAYED -> StatusDelayed
+                            ArrivalStatus.EARLY   -> StatusEarly
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        animationSpec = tween(300),
+                        label = "heroStatus",
+                    )
+                    val heroMins = nextBus.liveMinutesUntilArrival()
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .clickable { onArrivalFocus(nextBus) },
+                        shape = RoundedCornerShape(16.dp),
+                        color = heroStatusColor.copy(alpha = 0.08f),
+                        border = BorderStroke(1.5.dp, heroStatusColor.copy(alpha = 0.4f)),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
+                                Text(
+                                    stringResource(R.string.hero_next),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = heroStatusColor,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.sp,
+                                )
+                                Text(
+                                    "${nextBus.routeShortName} · ${nextBus.tripHeadsign}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Row(
+                                verticalAlignment = Alignment.Bottom,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                if (nextBus.predicted) {
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(bottom = 6.dp)
+                                            .size(7.dp)
+                                            .clip(androidx.compose.foundation.shape.CircleShape)
+                                            .background(heroStatusColor),
+                                    )
+                                }
+                                if (heroMins == 0) {
+                                    Text(
+                                        stringResource(R.string.status_now),
+                                        style = MaterialTheme.typography.headlineMedium,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = heroStatusColor,
+                                    )
+                                } else {
+                                    Text(
+                                        if (heroMins < 60) "$heroMins" else "${heroMins / 60}h ${heroMins % 60}",
+                                        style = MaterialTheme.typography.headlineMedium,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = heroStatusColor,
+                                    )
+                                    if (heroMins < 60) {
+                                        Text(
+                                            stringResource(R.string.label_min),
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = heroStatusColor.copy(alpha = 0.75f),
+                                            modifier = Modifier.padding(bottom = 4.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Spacer(Modifier.height(0.dp))
+                }
+            }
+
             Box {
                 val distinctAgencies = remember(arrivals) {
                     arrivals.map { it.agencyName }.filter { it.isNotBlank() }.distinct()
                 }
+                // Shared item renderer — used by both live and scheduled itemsIndexed blocks
+                val renderItem: @Composable (Int, ObaArrival) -> Unit = { index, arrival ->
+                    var rowVisible by remember(arrival.tripId) { mutableStateOf(false) }
+                    LaunchedEffect(arrival.tripId) {
+                        delay(index * 40L)
+                        rowVisible = true
+                    }
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = rowVisible,
+                        enter = fadeIn(tween(180)) + slideInVertically(tween(180)) { it / 3 },
+                    ) {
+                    val hasReminder = activeReminders.any { it.tripId == arrival.tripId }
+                    // Swipe right → open reminder sheet
+                    val haptic = LocalHapticFeedback.current
+                    val swipeState = rememberSwipeToDismissBoxState(
+                        // Allow StartToEnd (swipe to remind) AND Settled (reset() after trigger).
+                        // EndToStart is disabled at SwipeToDismissBox level; block it here too.
+                        confirmValueChange = { it != SwipeToDismissBoxValue.EndToStart },
+                    )
+                    LaunchedEffect(swipeState.currentValue) {
+                        if (swipeState.currentValue == SwipeToDismissBoxValue.StartToEnd) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onArrivalReminder(arrival)
+                            kotlinx.coroutines.delay(250)
+                            swipeState.reset()
+                        }
+                    }
+                    SwipeToDismissBox(
+                        state = swipeState,
+                        enableDismissFromStartToEnd = sidecarEnabled,
+                        enableDismissFromEndToStart = false,
+                        backgroundContent = {
+                            val revealed = swipeState.targetValue == SwipeToDismissBoxValue.StartToEnd
+                            val bgAlpha by animateFloatAsState(
+                                targetValue = if (revealed) 1f else 0f,
+                                animationSpec = tween(200),
+                                label = "swipeBgAlpha",
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = bgAlpha))
+                                    .padding(start = 20.dp),
+                                contentAlignment = Alignment.CenterStart,
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Icon(
+                                        if (hasReminder) Icons.Default.NotificationsActive
+                                        else Icons.Outlined.NotificationsNone,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                    Text(
+                                        if (hasReminder) stringResource(R.string.reminder_set_snack)
+                                        else stringResource(R.string.reminder_set_title),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    )
+                                }
+                            }
+                        },
+                    ) {
+                    ArrivalRow(
+                        arrival = arrival,
+                        isSelected = arrival.vehicleId != null
+                            && arrival.vehicleId == focusedVehicleId,
+                        isPinned = pinnedTripVehicleId != null
+                            && arrival.vehicleId == pinnedTripVehicleId,
+                        hasReminder = hasReminder,
+                        sidecarEnabled = sidecarEnabled,
+                        onClick = { onArrivalFocus(arrival) },
+                        onLongClick = { onArrivalReminder(arrival) },
+                        onViewDetails = { onArrivalDetails(arrival) },
+                        onUnpin = if (pinnedTripVehicleId != null && arrival.vehicleId == pinnedTripVehicleId)
+                            onUnpinTrip else null,
+                        showAgencyLabel = distinctAgencies.size > 1,
+                    )
+                    } // end SwipeToDismissBox
+                    } // end row AnimatedVisibility
+                }
+
+                val visible = sortedArrivals.take(visibleCount)
+                val liveItems = visible.filter { it.predicted }
+                val scheduledItems = visible.filter { !it.predicted }
+
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.heightIn(max = 280.dp),
+                    modifier = Modifier.heightIn(max = listMaxHeight),
                 ) {
-                    items(
-                        sortedArrivals.take(visibleCount),
-                        key = { "${it.tripId}_${it.scheduledArrivalTime}" }
-                    ) { arrival ->
-                        val hasReminder = activeReminders.any { it.tripId == arrival.tripId }
-                        ArrivalRow(
-                            arrival = arrival,
-                            isSelected = arrival.vehicleId != null
-                                && arrival.vehicleId == focusedVehicleId,
-                            isPinned = pinnedTripVehicleId != null
-                                && arrival.vehicleId == pinnedTripVehicleId,
-                            hasReminder = hasReminder,
-                            sidecarEnabled = sidecarEnabled,
-                            onClick = { onArrivalFocus(arrival) },
-                            onLongClick = { onArrivalLongPress(arrival) },
-                            onViewDetails = { onArrivalDetails(arrival) },
-                            onUnpin = if (pinnedTripVehicleId != null && arrival.vehicleId == pinnedTripVehicleId)
-                                onUnpinTrip else null,
-                            showAgencyLabel = distinctAgencies.size > 1,
-                            modifier = Modifier.animateItem(),
-                        )
+                    if (liveItems.isNotEmpty()) {
+                        stickyHeader(key = "header_live") {
+                            ArrivalSectionHeader(label = stringResource(R.string.section_live), count = liveItems.size)
+                        }
+                        itemsIndexed(
+                            liveItems,
+                            key = { _, a -> "live_${a.tripId}_${a.scheduledArrivalTime}" },
+                        ) { index, arrival -> renderItem(index, arrival) }
+                    }
+                    if (scheduledItems.isNotEmpty()) {
+                        stickyHeader(key = "header_scheduled") {
+                            ArrivalSectionHeader(
+                                label = stringResource(R.string.section_scheduled),
+                                count = scheduledItems.size,
+                                muted = liveItems.isNotEmpty(),
+                            )
+                        }
+                        itemsIndexed(
+                            scheduledItems,
+                            key = { _, a -> "sched_${a.tripId}_${a.scheduledArrivalTime}" },
+                        ) { index, arrival -> renderItem(liveItems.size + index, arrival) }
                     }
                 }
                 // Bottom-fade gradient — only shown while there are hidden rows
@@ -1939,6 +2271,7 @@ fun StopBottomSheet(
         }
 
         Spacer(Modifier.height(8.dp))
+        } // end Column
     }
 }
 
@@ -1956,7 +2289,7 @@ fun ArrivalRow(
     showAgencyLabel: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val statusColor = when (arrival.status) {
+    val targetStatusColor = when (arrival.status) {
         ArrivalStatus.ON_TIME   -> StatusOnTime
         ArrivalStatus.DELAYED   -> StatusDelayed
         ArrivalStatus.EARLY     -> StatusEarly
@@ -1968,11 +2301,13 @@ fun ArrivalRow(
     val headwayMins = arrival.headwaySecs?.let { it / 60 }
 
     // Headway (frequency-based) with no real-time prediction → always scheduled grey
-    val badgeColor = when {
+    val targetBadgeColor = when {
         missed -> MaterialTheme.colorScheme.onSurfaceVariant
         arrival.isHeadway && !arrival.predicted -> MaterialTheme.colorScheme.onSurfaceVariant
-        else -> statusColor
+        else -> targetStatusColor
     }
+    val statusColor by animateColorAsState(targetValue = targetStatusColor, animationSpec = tween(300), label = "statusColor")
+    val badgeColor by animateColorAsState(targetValue = targetBadgeColor, animationSpec = tween(300), label = "badgeColor")
 
     val untilFmt = stringResource(R.string.arrival_until)
     val headwayUntil = arrival.headwayEndTime?.let {
@@ -1993,7 +2328,7 @@ fun ArrivalRow(
         arrival.status == ArrivalStatus.ON_TIME   -> stringResource(R.string.status_on_time)
         arrival.status == ArrivalStatus.DELAYED   -> stringResource(R.string.status_delayed)
         arrival.status == ArrivalStatus.EARLY     -> stringResource(R.string.status_early)
-        arrival.status == ArrivalStatus.SCHEDULED -> stringResource(R.string.status_scheduled)
+        arrival.status == ArrivalStatus.SCHEDULED -> null  // section header already says "Scheduled"
         else -> null
     }
 
@@ -2053,13 +2388,25 @@ fun ArrivalRow(
         else
             BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp)
-                .defaultMinSize(minHeight = 56.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Box {
+            // Status-colour accent bar at the card's left edge
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .background(
+                        color = statusColor.copy(alpha = if (missed) 0.2f else 0.6f),
+                        shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp),
+                    ),
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 16.dp, top = 14.dp, bottom = 14.dp)
+                    .defaultMinSize(minHeight = 56.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
             // ── CENTER: chip + destination + status ───────────────────────
             Column(
                 modifier = Modifier
@@ -2148,6 +2495,7 @@ fun ArrivalRow(
                 } else if (arrival.tripHeadsign.isNotBlank() && arrival.routeLongName.isNotBlank()) {
                     arrival.routeLongName
                         .takeIf { it.trim().lowercase() != arrival.tripHeadsign.trim().lowercase() }
+                        ?.takeIf { !it.trim().lowercase().startsWith(arrival.routeShortName.trim().lowercase()) }
                 } else null
                 if (via != null) {
                     Text(
@@ -2241,15 +2589,37 @@ fun ArrivalRow(
                 horizontalArrangement = Arrangement.End,
             ) {
                 // Arrival time — coloured badge so status is impossible to miss
+                // P3 – urgency pulse: badge scales up/down faster as minutes -> 0
+                val urgencyActive = !missed && minutes in 0..2
+                val urgencyPulse by if (urgencyActive) {
+                    rememberInfiniteTransition(label = "urgency").animateFloat(
+                        initialValue = 1.00f, targetValue = 1.06f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(
+                                durationMillis = (minutes.coerceAtLeast(1) * 300).coerceIn(300, 600),
+                                easing = FastOutSlowInEasing,
+                            ),
+                            repeatMode = RepeatMode.Reverse,
+                        ),
+                        label = "urgencyScale",
+                    )
+                } else {
+                    remember { mutableStateOf(1f) }
+                }
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = badgeColor.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.35f)),
+                    color = badgeColor.copy(alpha = if (urgencyActive) 0.18f else 0.12f),
+                    border = BorderStroke(if (urgencyActive) 1.5.dp else 1.dp, badgeColor.copy(alpha = if (urgencyActive) 0.6f else 0.35f)),
+                    modifier = Modifier.scale(urgencyPulse),
                 ) {
                     Column(
                         modifier = Modifier
                             .padding(horizontal = 10.dp, vertical = 6.dp)
-                            .widthIn(min = 44.dp),
+                            .widthIn(min = 44.dp)
+                            .then(
+                                if (sidecarEnabled) Modifier.clickable { onLongClick?.invoke() }
+                                else Modifier
+                            ),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
@@ -2264,9 +2634,30 @@ fun ArrivalRow(
                             )
                             Spacer(Modifier.height(4.dp))
                         }
+                        // P2 – slot-machine: numbers roll upward as minutes decrease
+                        AnimatedContent(
+                            targetState = minutes,
+                            transitionSpec = {
+                                if (targetState < initialState) {
+                                    // counting down — roll up
+                                    (slideInVertically(tween(280)) { it } + fadeIn(tween(280))) togetherWith
+                                        (slideOutVertically(tween(280)) { -it } + fadeOut(tween(280)))
+                                } else {
+                                    // jumped forward (refresh reordered list) — roll down
+                                    (slideInVertically(tween(280)) { -it } + fadeIn(tween(280))) togetherWith
+                                        (slideOutVertically(tween(280)) { it } + fadeOut(tween(280)))
+                                }
+                            },
+                            label = "timeBadge",
+                        ) { mins ->
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                        val missed = mins < 0
                         if (missed) {
                             // Show how long ago the bus left in plain language
-                            val agoMin = -minutes
+                            val agoMin = -mins
                             if (agoMin == 0) {
                                 Text(
                                     stringResource(R.string.status_just_now),
@@ -2307,7 +2698,7 @@ fun ArrivalRow(
                                 letterSpacing = 1.sp,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                             )
-                        } else if (minutes == 0) {
+                        } else if (mins == 0) {
                             Text(
                                 stringResource(R.string.status_now),
                                 style = MaterialTheme.typography.titleLarge,
@@ -2318,9 +2709,9 @@ fun ArrivalRow(
                         } else {
                             // Prefix "~" for headway trips that have real-time prediction
                             val prefix = if (arrival.isHeadway && arrival.predicted) "~" else ""
-                            if (minutes < 60) {
+                            if (mins < 60) {
                                 Text(
-                                    "$prefix$minutes",
+                                    "$prefix$mins",
                                     style = MaterialTheme.typography.titleLarge,
                                     color = badgeColor,
                                     fontWeight = FontWeight.Bold,
@@ -2335,14 +2726,14 @@ fun ArrivalRow(
                                 )
                             } else {
                                 Text(
-                                    "$prefix${minutes / 60}h",
+                                    "$prefix${mins / 60}h",
                                     style = MaterialTheme.typography.titleLarge,
                                     color = badgeColor,
                                     fontWeight = FontWeight.Bold,
                                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                 )
                                 Text(
-                                    "${minutes % 60}m",
+                                    "${mins % 60}m",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = badgeColor.copy(alpha = 0.75f),
                                     letterSpacing = 1.sp,
@@ -2350,6 +2741,8 @@ fun ArrivalRow(
                                 )
                             }
                         }
+                        } // end timeBadge Column
+                        } // end timeBadge AnimatedContent
                         // Bell indicator — tappable to open reminder sheet
                         if (sidecarEnabled) {
                             Spacer(Modifier.height(3.dp))
@@ -2357,8 +2750,7 @@ fun ArrivalRow(
                                 imageVector = if (hasReminder) Icons.Default.Notifications else Icons.Outlined.NotificationsNone,
                                 contentDescription = if (hasReminder) stringResource(R.string.reminder_set_snack) else stringResource(R.string.reminder_set_title),
                                 modifier = Modifier
-                                    .size(12.dp)
-                                    .clickable { onLongClick?.invoke() },
+                                    .size(16.dp),  // visual indicator only — whole column is tappable
                                 tint = if (hasReminder)
                                     MaterialTheme.colorScheme.primary
                                 else
@@ -2388,10 +2780,53 @@ fun ArrivalRow(
                 }
             }
         }
+        } // end accent bar Box
     }
 }
 
-// ─── Bus teardrop marker bitmap ───────────────────────────────────────────────
+// ─── Arrival list section header ─────────────────────────────────────────────
+@Composable
+private fun ArrivalSectionHeader(
+    label: String,
+    count: Int,
+    muted: Boolean = false,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 16.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = if (muted) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.primary,
+        )
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = if (muted) MaterialTheme.colorScheme.surfaceVariant
+                    else MaterialTheme.colorScheme.primaryContainer,
+        ) {
+            Text(
+                "$count",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (muted) MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+            )
+        }
+        HorizontalDivider(
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+        )
+    }
+}
+
+// ─── Bus teardrop marker bitmap ────────────────────────────────────────────────
 /**
  * Draws a bus STOP marker: a rounded-square badge with a classic bus-stop pole
  * symbol (▐▌ bar + pole), anchored at the bottom-centre.

@@ -16,6 +16,7 @@ import com.taqisystems.bus.android.MainActivity
 import com.taqisystems.bus.android.R
 import com.taqisystems.bus.android.ServiceLocator
 import com.taqisystems.bus.android.data.model.InboxNotification
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import java.util.UUID
 
@@ -41,14 +42,42 @@ class KelantanBusNotificationExtension : INotificationServiceExtension {
         }.getOrNull()
 
         val notifId = System.currentTimeMillis().toInt()
+
+        // For arrival_reminder pushes, compose the title/body locally from the
+        // stored ActiveReminder so the text respects the device locale once
+        // translations are added to strings.xml.
+        val localData = n.additionalData
+        val isArrivalReminder = localData?.optString("type") == "arrival_reminder"
+        val tripIdFromPush = if (isArrivalReminder)
+            localData?.optString("trip_id")?.takeIf { it.isNotBlank() } else null
+
+        var localTitle: String? = null
+        var localBody: String? = null
+        if (tripIdFromPush != null) {
+            runCatching {
+                val reminders = runBlocking {
+                    ServiceLocator.preferences.activeReminders.first()
+                }
+                val reminder = reminders.find { it.tripId == tripIdFromPush }
+                if (reminder != null) {
+                    val ctx = ServiceLocator.application
+                    localTitle = ctx.getString(R.string.notif_reminder_title)
+                    localBody = if (reminder.stopName.isNotBlank())
+                        ctx.getString(R.string.notif_reminder_body, reminder.minutesBefore, reminder.stopName)
+                    else
+                        ctx.getString(R.string.notif_reminder_body_no_stop, reminder.minutesBefore)
+                }
+            }
+        }
+
         val entry = InboxNotification(
-            id             = n.notificationId?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString(),
-            title          = n.title?.takeIf { it.isNotBlank() } ?: BuildConfig.APP_NAME,
-            body           = n.body  ?: "",
-            receivedAt     = System.currentTimeMillis(),
-            isRead         = false,
-            deepLink       = deepLink,
-            systemNotifId  = notifId,
+            id            = n.notificationId?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString(),
+            title         = localTitle ?: n.title?.takeIf { it.isNotBlank() } ?: BuildConfig.APP_NAME,
+            body          = localBody  ?: n.body  ?: "",
+            receivedAt    = System.currentTimeMillis(),
+            isRead        = false,
+            deepLink      = deepLink,
+            systemNotifId = notifId,
         )
 
         runBlocking {
@@ -56,16 +85,9 @@ class KelantanBusNotificationExtension : INotificationServiceExtension {
             // service or extension, so preferences is always available here.
             ServiceLocator.preferences.addNotification(entry)
 
-            // If this is an arrival reminder firing, clear it from active reminders
-            // so the bell icon resets on the stop details screen.
-            runCatching {
-                val data = n.additionalData
-                if (data?.optString("type") == "arrival_reminder") {
-                    val tripId = data.optString("trip_id").takeIf { it.isNotBlank() }
-                    if (tripId != null) {
-                        ServiceLocator.preferences.removeActiveReminder(tripId)
-                    }
-                }
+            // Clear the active reminder so the bell icon resets on the arrivals sheet.
+            if (tripIdFromPush != null) {
+                runCatching { ServiceLocator.preferences.removeActiveReminder(tripIdFromPush) }
             }
         }
 

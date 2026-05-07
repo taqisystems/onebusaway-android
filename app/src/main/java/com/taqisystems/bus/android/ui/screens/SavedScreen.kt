@@ -20,6 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,7 +60,7 @@ fun SavedScreen(
             Column {
                 TopAppBar(
                     title = {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column {
                             Text(stringResource(R.string.saved_title), fontWeight = FontWeight.Bold)
                             val subtitle = when (selectedTab) {
                                 0 -> if (savedStops.isEmpty()) stringResource(R.string.saved_stops_empty_title) else pluralStringResource(R.plurals.saved_stops_count, savedStops.size, savedStops.size)
@@ -288,6 +289,7 @@ private fun SavedEmptyState(
                 subtitle,
                 style  = MaterialTheme.typography.bodySmall,
                 color  = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
             )
         }
     }

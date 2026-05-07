@@ -27,8 +27,8 @@ object ServiceLocator {
 
     /**
      * Shared OkHttpClient with a User-Agent that identifies the device.
-     * Format: KelantanBus/<versionName> (Android <sdk>; <manufacturer> <model>)
-     * Example: KelantanBus/1.4.2 (Android 13; samsung SM-A715F)
+     * Format: KelantanBus/<versionName> (build <versionCode>; Android <sdk>; <manufacturer> <model>)
+     * Example: KelantanBus/1.4.2 (build 42; Android 33; samsung SM-A715F)
      */
     lateinit var httpClient: OkHttpClient
         private set
@@ -38,14 +38,16 @@ object ServiceLocator {
         preferences = AppPreferences(context.applicationContext)
 
         val pm = context.packageManager
-        val versionName = runCatching {
-            pm.getPackageInfo(context.packageName, 0).versionName
-        }.getOrDefault("unknown")
+        val pkgInfo = runCatching { pm.getPackageInfo(context.packageName, 0) }.getOrNull()
+        val versionName = pkgInfo?.versionName ?: "unknown"
+        val versionCode = pkgInfo?.let {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) it.longVersionCode
+            else @Suppress("DEPRECATION") it.versionCode.toLong()
+        } ?: 0L
         val manufacturer = Build.MANUFACTURER
         val model = Build.MODEL
         val sdk = Build.VERSION.SDK_INT
-
-        val userAgent = "KelantanBus/$versionName (Android $sdk; $manufacturer $model)"
+        val userAgent = "KelantanBus/$versionName (build $versionCode; Android $sdk; $manufacturer $model)"
 
         httpClient = OkHttpClient.Builder()
             .addInterceptor { chain ->

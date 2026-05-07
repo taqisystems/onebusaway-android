@@ -53,6 +53,7 @@ KelantanBus is a real-time transit app for the Kelantan public bus network. It s
 | Saved stops | Persist favourite stops in DataStore |
 | Multi-region | 11 Malaysian regions selectable; per-region sidecar base URL |
 | Settings | Edit OBA/OTP base URLs at runtime |
+| Localisation | Full English + Bahasa Malaysia UI strings |
 
 ---
 
@@ -69,6 +70,17 @@ KelantanBus is a real-time transit app for the Kelantan public bus network. It s
 | `minSdk` | 24 (Android 7.0) |
 
 > **Important:** AGP 9.0.1 bundles its own Kotlin toolchain. The `kotlin.android` plugin must **not** be declared in `app/build.gradle.kts` to avoid a duplicate-extension error. Only `kotlin.plugin.compose` is needed at the app module level.
+
+### Localisation
+
+The app ships with two locale directories:
+
+| Locale qualifier | File | Status |
+|---|---|---|
+| _(default)_ | `app/src/main/res/values/strings.xml` | English — complete |
+| `ms` | `app/src/main/res/values-ms/strings.xml` | Bahasa Malaysia — complete |
+
+All user-visible strings in Kotlin source use `stringResource(R.string.*)` or `pluralStringResource(R.plurals.*)` — no hardcoded string literals remain in UI code. Adding a new locale requires only a new `values-<qualifier>/strings.xml`; no Kotlin changes are needed.
 
 ### Library versions (`gradle/libs.versions.toml`)
 
@@ -104,8 +116,10 @@ KelantanBus/
 │       │   ├── mipmap-*/            # adaptive icons
 │       │   ├── values/
 │       │   │   ├── colors.xml
-│       │   │   ├── strings.xml
+│       │   │   ├── strings.xml      # English (default)
 │       │   │   └── themes.xml       # Material3 no-action-bar base theme
+│       │   ├── values-ms/
+│       │   │   └── strings.xml      # Bahasa Malaysia translations
 │       │   └── xml/
 │       │       ├── backup_rules.xml
 │       │       └── data_extraction_rules.xml
@@ -485,11 +499,11 @@ object ServiceLocator {
 **Shared `OkHttpClient` with `User-Agent`:** All repositories share a single `OkHttpClient` instance built in `init()`. A network interceptor attaches a `User-Agent` header to every request:
 
 ```
-KelantanBus/<versionName> (Android <sdk>; <manufacturer> <model>)
-Example: KelantanBus/1.4.2 (Android 33; samsung SM-A715F)
+KelantanBus/<versionName> (build <versionCode>; Android <sdk>; <manufacturer> <model>)
+Example: KelantanBus/1.4.2 (build 42; Android 33; samsung SM-A715F)
 ```
 
-This lets server-side logs identify device models. The `ReminderRepository`'s timeouts are preserved by calling `httpClient.newBuilder().connectTimeout(…).build()` rather than creating a fresh client.
+This lets server-side logs identify the build number and device model.
 
 > Note: The OBA SDK's internal HTTP client (`OnebusawaySdkOkHttpClientAsync`) is separate and not injectable — it handles OBA API calls only.
 
@@ -795,14 +809,14 @@ source code. A single `brand` flavor dimension is defined:
 
 | Flavor | `applicationId` | Purpose |
 |---|---|---|
-| `kelantan` | `com.taqisystems.bus.android` | Kelantan Bus (default) |
+| `kelantanbus` | `com.taqisystems.bus.android` | Kelantan Bus (default) |
 | `generic` | `com.taqisystems.bus.android.generic` | Blank white-label template |
 
 Build commands:
 
 ```bash
-./gradlew assembleKelantanDebug     # Kelantan brand, debug
-./gradlew assembleKelantanRelease   # Kelantan brand, signed release
+./gradlew assembleKelantanbusDebug     # Kelantan brand, debug
+./gradlew assembleKelantanbusRelease   # Kelantan brand, signed release
 ./gradlew assembleGenericDebug      # Generic white-label, debug
 ```
 
@@ -954,9 +968,9 @@ All OBA calls go through `ObaRepository`. Methods are implemented either via the
 | `getRouteShape` | ✅ SDK | `shape().retrieve()` |
 | `getShapeForTrip` | ✅ SDK | `trip().retrieve()` → `shapeId()` |
 | `getVehiclesForRoute` | ✅ SDK | `tripsForRoute().list(includeStatus=true)` |
-| `getArrivalsForStop` | ✅ SDK | `arrivalAndDeparture().list(params)` — `headwaySecs`/`headwayEndTime` always `null` (frequency is opaque `String?`) |
-| `getTripDetails` | ⚠️ Raw HTTP | `TripDetailRetrieveResponse.Data.Entry` — `schedule()` sub-fields and `status()` partial fields not fully accessible via SDK |
-| `getShapeForRoute` | ⚠️ Raw HTTP | `stops-for-route?includePolylines=true` is not exposed by the SDK |
+| `getArrivalsForStop` | ⚠️ Raw HTTP | SDK models `frequency` as `String?` but server returns a JSON object — raw OkHttp used so `frequency` is parsed cleanly as `JSONObject` |
+| `getTripDetails` | ✅ SDK | `tripDetails().retrieve(params)` — `entry.schedule()?.stopTimes()` for stop times; `entry.status()` for live position; headsign from `references().trips()` |
+| `getShapeForRoute` | ✅ SDK | `stopsForRoute().list(StopsForRouteListParams…includePolylines(true))` — `entry().polylines()` returns typed `List<Polyline>`, each with `points()` encoded string |
 | `downloadText` | ⚠️ Raw HTTP | Intentional — fetches sidecar GeoJSON from arbitrary URL |
 
 ### Sidecar endpoints
@@ -1185,10 +1199,10 @@ val stopTimes = entry.schedule()?.stopTimes()?.map { … } ?: emptyList()
 Despite the raw JSON having `frequency` as an object with `headway` and `endTime` sub-fields, the SDK model exposes:
 
 ```kotlin
-fun frequency(): String?   // serialised string representation only
+fun frequency(): String?   // returns null — Jackson cannot coerce an object to String
 ```
 
-The fields `frequency.headway`, `frequency.endTime`, and `frequencyType` (int) are not available as typed properties. `getArrivalsForStop` has been migrated to the SDK; as a result `headwaySecs` and `headwayEndTime` on `ObaArrival` are always `null`. `isHeadway` remains accurate (non-null `frequency()` signals a headway trip), but the specific headway interval and window cannot be recovered from the opaque string.
+Because this field cannot be recovered through the SDK's typed API, `getArrivalsForStop` bypasses the SDK entirely and uses a raw OkHttp call. The `frequency` key is then read as a plain `JSONObject`, giving direct access to `headway` (int, seconds) and `endTime` (long, epoch ms) without any coercion issues.
 
 ---
 

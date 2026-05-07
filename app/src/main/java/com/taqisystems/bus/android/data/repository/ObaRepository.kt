@@ -24,8 +24,8 @@ import org.onebusaway.models.routesforlocation.RoutesForLocationListParams
 import org.onebusaway.models.stop.StopRetrieveParams
 import org.onebusaway.models.stopsforlocation.StopsForLocationListParams
 import org.onebusaway.models.trip.TripRetrieveParams
-import org.onebusaway.models.arrivalanddeparture.ArrivalAndDepartureListParams
 import org.onebusaway.models.tripdetails.TripDetailRetrieveParams
+import org.onebusaway.models.stopsforroute.StopsForRouteListParams
 import org.onebusaway.models.tripsforroute.TripsForRouteListParams
 
 /**
@@ -121,73 +121,102 @@ class ObaRepository(
 
     suspend fun getArrivalsForStop(stopId: String): List<ObaArrival> = withContext(Dispatchers.IO) {
         runCatching {
-            val params = ArrivalAndDepartureListParams.builder()
-                .stopId(stopId)
-                .minutesAfter(360L)
-                .build()
-            val resp = client.arrivalAndDeparture().list(params)
-            val arrivals = resp.data().entry().arrivalsAndDepartures()
+            // The SDK models `frequency` as String? but the server returns a JSON object
+            // ({"headway":900,"endTime":79200000,...}). Parsing the raw response directly
+            // is cleaner than fighting the SDK's type coercion for this field.
+            val url = "$baseUrl/api/where/arrivals-and-departures-for-stop/$stopId.json" +
+                "?key=$apiKey&minutesAfter=360"
+            val body = http.newCall(Request.Builder().url(url).build())
+                .execute().body?.string() ?: return@runCatching emptyList()
+
+            val data = JSONObject(body).optJSONObject("data")
+                ?: return@runCatching emptyList()
+            val entry = data.optJSONObject("entry")
+                ?: return@runCatching emptyList()
+            val refs = data.optJSONObject("references") ?: JSONObject()
             val now = System.currentTimeMillis()
 
-            // Build routeId → TransitType from references
-            val routeTypeMap = resp.data().references().routes()
-                .associate { it.id() to TransitType.fromGtfsType(it.type().toInt()) }
-            val routeColorMap = resp.data().references().routes()
-                .associate { it.id() to it.color() }
-            val routeTextColorMap = resp.data().references().routes()
-                .associate { it.id() to it.textColor() }
-            val agencyNameMap = run {
-                val agencies = resp.data().references().agencies()
-                    .associate { it.id() to (it.name() ?: "") }
-                resp.data().references().routes()
-                    .associate { it.id() to (agencies[it.agencyId()] ?: "") }
+            // Build lookup maps from references
+            val routeTypeMap = mutableMapOf<String, TransitType>()
+            val routeColorMap = mutableMapOf<String, String>()
+            val routeTextColorMap = mutableMapOf<String, String>()
+            val routeAgencyMap = mutableMapOf<String, String>()
+            val agencyNameMap = mutableMapOf<String, String>()
+
+            val agenciesJson = refs.optJSONArray("agencies")
+            if (agenciesJson != null) {
+                for (i in 0 until agenciesJson.length()) {
+                    val a = agenciesJson.getJSONObject(i)
+                    agencyNameMap[a.optString("id")] = a.optString("name")
+                }
+            }
+            val routesJson = refs.optJSONArray("routes")
+            if (routesJson != null) {
+                for (i in 0 until routesJson.length()) {
+                    val r = routesJson.getJSONObject(i)
+                    val rid = r.optString("id")
+                    routeTypeMap[rid] = TransitType.fromGtfsType(r.optInt("type", 3))
+                    routeColorMap[rid] = r.optString("color", "")
+                    routeTextColorMap[rid] = r.optString("textColor", "")
+                    routeAgencyMap[rid] = r.optString("agencyId", "")
+                }
             }
 
-            arrivals.map { e ->
-                val scheduledMs = e.scheduledArrivalTime()
-                val predictedMs = e.predictedArrivalTime()
-                val effectiveMs = if (predictedMs > 0) predictedMs else scheduledMs
-                val minutesUntil = ((effectiveMs - now) / 60_000).toInt()
-                val isPredicted = predictedMs > 0
+            val arr = entry.optJSONArray("arrivalsAndDepartures")
+                ?: return@runCatching emptyList()
 
-                // frequency() is String? — non-null signals a headway trip
-                // headwaySecs / headwayEndTime unavailable from opaque string
-                val isHeadway = e.frequency() != null
+            (0 until arr.length()).map { i ->
+                val e = arr.getJSONObject(i)
+                val scheduledMs = e.optLong("scheduledArrivalTime", 0L)
+                val predictedMs = e.optLong("predictedArrivalTime", 0L)
+                val effectiveMs = if (predictedMs > 0L) predictedMs else scheduledMs
+                val minutesUntil = ((effectiveMs - now) / 60_000).toInt()
+                val isPredicted = predictedMs > 0L
+
+                // frequency is a proper JSON object — parse it directly
+                val freq = e.optJSONObject("frequency")
+                val isHeadway = freq != null
+                val headwaySecs = freq?.optInt("headway", 0)?.takeIf { it > 0 }
+                val headwayEndTime = freq?.optLong("endTime", 0L)?.takeIf { it > 0L }
 
                 val status = when {
                     !isPredicted -> ArrivalStatus.SCHEDULED
-                    predictedMs - scheduledMs > 60_000 -> ArrivalStatus.DELAYED
-                    predictedMs - scheduledMs < -60_000 -> ArrivalStatus.EARLY
+                    predictedMs - scheduledMs > 60_000L -> ArrivalStatus.DELAYED
+                    predictedMs - scheduledMs < -60_000L -> ArrivalStatus.EARLY
                     else -> ArrivalStatus.ON_TIME
                 }
-                val ts = e.tripStatus()
+
+                val ts = e.optJSONObject("tripStatus")
+                val pos = ts?.optJSONObject("position")
+                val routeId = e.optString("routeId")
+
                 ObaArrival(
-                    routeId = e.routeId(),
-                    routeShortName = e.routeShortName()?.takeIf { it.isNotEmpty() } ?: e.routeId(),
-                    routeLongName = e.routeLongName() ?: "",
-                    tripId = e.tripId(),
-                    tripHeadsign = e.tripHeadsign(),
+                    routeId = routeId,
+                    routeShortName = e.optString("routeShortName").takeIf { it.isNotEmpty() } ?: routeId,
+                    routeLongName = e.optString("routeLongName", ""),
+                    tripId = e.optString("tripId"),
+                    tripHeadsign = e.optString("tripHeadsign", ""),
                     predictedArrivalTime = predictedMs,
                     scheduledArrivalTime = scheduledMs,
                     predicted = isPredicted,
                     status = status,
                     minutesUntilArrival = minutesUntil,
-                    deviationMinutes = ((predictedMs - scheduledMs) / 60_000).toInt(),
-                    vehicleId = e.vehicleId(),
-                    vehicleLat = ts?.position()?.lat(),
-                    vehicleLon = ts?.position()?.lon(),
-                    vehicleOrientation = ts?.orientation(),
-                    vehicleLastUpdateTime = ts?.lastLocationUpdateTime(),
+                    deviationMinutes = ((predictedMs - scheduledMs) / 60_000L).toInt(),
+                    vehicleId = e.optString("vehicleId").takeIf { it.isNotEmpty() },
+                    vehicleLat = pos?.optDouble("lat")?.takeIf { !it.isNaN() },
+                    vehicleLon = pos?.optDouble("lon")?.takeIf { !it.isNaN() },
+                    vehicleOrientation = ts?.optDouble("orientation")?.takeIf { !it.isNaN() },
+                    vehicleLastUpdateTime = ts?.optLong("lastLocationUpdateTime")?.takeIf { it > 0L },
                     shapeId = null,
                     isHeadway = isHeadway,
-                    headwaySecs = null,
-                    headwayEndTime = null,
-                    serviceDate = e.serviceDate(),
-                    stopSequence = e.stopSequence().toInt(),
-                    transitType = routeTypeMap[e.routeId()] ?: TransitType.BUS,
-                    routeColor = routeColorMap[e.routeId()]?.takeIf { it.isNotBlank() },
-                    routeTextColor = routeTextColorMap[e.routeId()]?.takeIf { it.isNotBlank() },
-                    agencyName = agencyNameMap[e.routeId()] ?: "",
+                    headwaySecs = headwaySecs,
+                    headwayEndTime = headwayEndTime,
+                    serviceDate = e.optLong("serviceDate", 0L),
+                    stopSequence = e.optInt("stopSequence", 0),
+                    transitType = routeTypeMap[routeId] ?: TransitType.BUS,
+                    routeColor = routeColorMap[routeId]?.takeIf { it.isNotBlank() },
+                    routeTextColor = routeTextColorMap[routeId]?.takeIf { it.isNotBlank() },
+                    agencyName = agencyNameMap[routeAgencyMap[routeId] ?: ""] ?: "",
                 )
             }
         }.getOrElse { emptyList() }
@@ -372,30 +401,24 @@ class ObaRepository(
     suspend fun getShapeForRoute(routeId: String): List<RoutePoint> =
         withContext(Dispatchers.IO) {
             runCatching {
-                // stops-for-route includes encoded polylines directly — no trip lookup needed
-                val url = "$baseUrl/api/where/stops-for-route/$routeId.json?key=$apiKey&includePolylines=true"
-                Log.d("ObaRepo", "getShapeForRoute: fetching $url")
-                val body = http.newCall(Request.Builder().url(url).build())
-                    .execute().body?.string() ?: run {
-                        Log.e("ObaRepo", "getShapeForRoute: empty response body")
-                        return@runCatching emptyList()
-                    }
-                val polylines = JSONObject(body)
-                    .optJSONObject("data")
-                    ?.optJSONObject("entry")
-                    ?.optJSONArray("polylines")
-                if (polylines != null && polylines.length() > 0) {
+                // stops-for-route with includePolylines=true via SDK
+                val params = StopsForRouteListParams.builder()
+                    .routeId(routeId)
+                    .includePolylines(true)
+                    .build()
+                val resp = client.stopsForRoute().list(params)
+                val polylines = resp.data().entry().polylines()
+                if (!polylines.isNullOrEmpty()) {
                     // Pick the longest segment (main direction) — avoids drawing both
                     // outbound + inbound and the straight connector line between them
                     var best = emptyList<RoutePoint>()
-                    for (i in 0 until polylines.length()) {
-                        val encoded = polylines.getJSONObject(i).optString("points", "")
-                        if (encoded.isNotEmpty()) {
-                            val pts = decodePolyline(encoded)
-                            if (pts.size > best.size) best = pts
-                        }
+                    for (poly in polylines) {
+                        val encoded = poly.points() ?: continue
+                        if (encoded.isEmpty()) continue
+                        val pts = decodePolyline(encoded)
+                        if (pts.size > best.size) best = pts
                     }
-                    Log.d("ObaRepo", "getShapeForRoute: best segment has ${best.size} points of ${polylines.length()} total segments")
+                    Log.d("ObaRepo", "getShapeForRoute: best segment has ${best.size} points of ${polylines.size} total segments")
                     return@runCatching best
                 }
 

@@ -265,6 +265,9 @@
     <!-- %1$d = minutes, %2$d = seconds -->
     <string name="map_updated_ms">Dikemas kini %1$d min %2$ds lalu</string>
     <string name="map_timetable_mode">Mod jadual</string>
+    <string name="section_live">Langsung</string>
+    <string name="section_scheduled">Berjadual</string>
+    <string name="chip_timetable_only">Jadual sahaja</string>
     <!-- %d = live count -->
     <string name="map_live_count">%d langsung</string>
     <!-- %d = scheduled count -->
@@ -449,4 +452,6 @@
     <string name="vehicle_elapsed_s">%ds lalu</string>
     <!-- %1$d = minutes, %2$d = seconds -->
     <string name="vehicle_elapsed_ms">%1$dm %2$ds lalu</string>
+    <string name="hero_next">SETERUSNYA</string>
+    <string name="label_min">min</string>
 </resources>
