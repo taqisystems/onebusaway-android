@@ -18,10 +18,14 @@ import com.taqisystems.bus.android.BuildConfig
  * │  APP_TERTIARY_COLOR        │  Supporting ink / icon tint                │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
- * For launcher icon and in-app logo, place overrides in the appropriate
- * product-flavour source set:
- *   app/src/<flavourName>/res/drawable/logo.png
+ * For launcher icon, in-app logo, and notification alert sound, place overrides
+ * in the appropriate product-flavour source set:
+ *   app/src/<flavourName>/res/drawable/logo.png          ← in-app / onboarding logo
  *   app/src/<flavourName>/res/mipmap-DENSITY/ic_launcher*.png
+ *   app/src/<flavourName>/res/raw/alert.wav              ← notification alert sound
+ *     Supported formats: WAV, OGG (recommended), MP3.
+ *     Keep under 1 MB / 30 s. The channel ID is scoped to packageName so the
+ *     OS always picks up the new sound even if another brand was installed before.
  */
 object BrandConfig {
 

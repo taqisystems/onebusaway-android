@@ -16,9 +16,20 @@ import kotlinx.coroutines.launch
 class KelantanBusApplication : Application() {
 
     companion object {
-        /** Channel ID used for arrival reminder push notifications (alert.wav sound). */
+        /**
+         * Channel IDs are scoped to the app package so that different white-label
+         * builds never share a channel — important because Android locks a channel's
+         * sound the first time it is created. Sharing a channel ID across builds
+         * would prevent a white-labeler from using their own custom sound.
+         *
+         * Replace the channel IDs by calling [channelId] with the Application context.
+         */
+        fun channelIdReminders(pkg: String)   = "${pkg}_reminders"
+        fun channelIdDestination(pkg: String) = "${pkg}_destination"
+
+        /** @deprecated use [channelIdReminders] with context instead */
         const val CHANNEL_ID_REMINDERS    = "kelantanbus_reminders"
-        /** Channel ID used for the destination alert foreground service (silent, low priority). */
+        /** @deprecated use [channelIdDestination] with context instead */
         const val CHANNEL_ID_DESTINATION  = "kelantanbus_destination"
     }
 
@@ -51,9 +62,19 @@ class KelantanBusApplication : Application() {
      * ⚠️ Once a channel is created its sound can only be changed by the user or by deleting
      * and recreating the channel. Uninstall/reinstall the app if you need to update the sound
      * during development.
+     *
+     * ── White-label sound override ──────────────────────────────────────────────────────────
+     * To use a custom notification sound, place your audio file (WAV/OGG/MP3) at:
+     *   app/src/<flavourName>/res/raw/alert.wav
+     * The flavour resource shadows the default. Supported formats: WAV, OGG (recommended),
+     * MP3. Keep the file under ~1 MB and under 30 seconds for best compatibility.
+     * ────────────────────────────────────────────────────────────────────────────────────────
      */
     private fun registerNotificationChannels() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+
+        val remindersId   = channelIdReminders(packageName)
+        val destinationId = channelIdDestination(packageName)
 
         val soundUri = Uri.parse(
             "android.resource://${packageName}/${R.raw.alert}"
@@ -64,7 +85,7 @@ class KelantanBusApplication : Application() {
             .build()
 
         val channel = NotificationChannel(
-            CHANNEL_ID_REMINDERS,
+            remindersId,
             "Reminders",
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
@@ -78,7 +99,7 @@ class KelantanBusApplication : Application() {
 
         // ── Destination alert foreground service channel (silent, low priority) ──
         val destChannel = NotificationChannel(
-            CHANNEL_ID_DESTINATION,
+            destinationId,
             "Destination Alerts",
             NotificationManager.IMPORTANCE_LOW,
         ).apply {

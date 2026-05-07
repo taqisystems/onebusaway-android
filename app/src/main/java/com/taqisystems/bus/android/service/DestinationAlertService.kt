@@ -267,7 +267,7 @@ class DestinationAlertService : Service(), TextToSpeech.OnInitListener {
             Intent(this, DestinationAlertService::class.java).apply { action = ACTION_STOP },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        return NotificationCompat.Builder(this, KelantanBusApplication.CHANNEL_ID_DESTINATION)
+        return NotificationCompat.Builder(this, KelantanBusApplication.channelIdDestination(packageName))
             .setSmallIcon(R.drawable.ic_stat_notification)
             .setContentTitle("Destination Alert Active")
             .setContentText(contentText)
@@ -288,7 +288,7 @@ class DestinationAlertService : Service(), TextToSpeech.OnInitListener {
             Intent(this, DestinationAlertService::class.java).apply { action = ACTION_STOP },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val notif = NotificationCompat.Builder(this, KelantanBusApplication.CHANNEL_ID_REMINDERS)
+        val notif = NotificationCompat.Builder(this, KelantanBusApplication.channelIdReminders(packageName))
             .setSmallIcon(R.drawable.ic_stat_notification)
             .setContentTitle("Get off the bus!")
             .setContentText("Your stop \"$destName\" is here.")

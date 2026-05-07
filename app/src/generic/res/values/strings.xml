@@ -9,14 +9,15 @@
     1. Rename this flavour or duplicate it in app/build.gradle.kts productFlavors.
     2. Replace "Your Agency" with your agency name.
     3. Drop your logo PNG into:
-         app/src/<flavour>/res/drawable/logo.png          ← in-app logo
+         app/src/<flavour>/res/drawable/logo.png          (in-app logo)
     4. Drop your launcher icons into:
-         app/src/<flavour>/res/mipmap-mdpi/ic_launcher.png
-         app/src/<flavour>/res/mipmap-hdpi/ic_launcher.png
-         app/src/<flavour>/res/mipmap-xhdpi/ic_launcher.png
-         app/src/<flavour>/res/mipmap-xxhdpi/ic_launcher.png
-         app/src/<flavour>/res/mipmap-xxxhdpi/ic_launcher.png
-         (also ic_launcher_round.png and ic_launcher_foreground.png)    5. Set your colours and name in local.properties:
+         ...
+    5. Drop your notification alert sound into:
+         app/src/<flavour>/res/raw/alert.wav
+         Supported formats: WAV, OGG (recommended), MP3.
+         Keep under 1 MB and 30 seconds.
+         The channel ID is scoped to the applicationId so Android always
+         picks up the correct sound even if another brand was installed before.    5. Set your colours and name in local.properties:
          APP_NAME=Your Agency
          APP_PRIMARY_COLOR=#0057B8
          APP_SECONDARY_COLOR=#003F84

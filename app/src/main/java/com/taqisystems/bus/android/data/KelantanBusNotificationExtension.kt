@@ -92,7 +92,7 @@ class KelantanBusNotificationExtension : INotificationServiceExtension {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val notification = NotificationCompat.Builder(context, KelantanBusApplication.CHANNEL_ID_REMINDERS)
+        val notification = NotificationCompat.Builder(context, KelantanBusApplication.channelIdReminders(context.packageName))
                 .setSmallIcon(R.drawable.ic_stat_onesignal_default)
             .setContentTitle(entry.title)
             .setContentText(entry.body)
