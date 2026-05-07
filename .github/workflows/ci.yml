@@ -44,9 +44,7 @@ jobs:
       #  Gradle validates ONESIGNAL_APP_ID and GOOGLE_MAPS_API_KEY at
       #  configuration time, so we supply dummy placeholder strings here.
       #  Unit tests never make real network calls so no actual credentials
-      #  are needed. No repository       #  are needed. No repository secrets are required for this pipeline.
       #  are needed. No repository secrets are required for this pipeline.
-secrets are required for this pipeline.
       #
       - name: Create local.properties
         run: |
@@ -67,7 +65,7 @@ secrets are required for this pipeline.
 
       # ── 6. Unit tests ────────────────────────────────────────────────────────
       - name: Run unit tests
-        run: ./gradlew testKelantanDebugUnitTest --no-daemon
+        run: ./gradlew testKelantanbusDebugUnitTest --no-daemon
 
       # ── 7. Upload test results ───────────────────────────────────────────────
       - name: Upload test results
@@ -75,6 +73,6 @@ secrets are required for this pipeline.
         uses: actions/upload-artifact@v4
         with:
           name: unit-test-results
-          path: app/build/reports/tests/testKelantanDebugUnitTest/
+          path: app/build/reports/tests/testKelantanbusDebugUnitTest/
           retention-days: 14
 

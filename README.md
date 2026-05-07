@@ -179,7 +179,7 @@ KelantanBus/
 ├── app/
 │   ├── build.gradle.kts
 │   └── src/
-│       ├── kelantanbus/res/        ← Kelantan brand resources
+│       ├── kelantanbus/res/        ← KelantanBus brand resources
 │       ├── generic/res/           ← White-label template
 │       └── main/
 │           ├── AndroidManifest.xml
