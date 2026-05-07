@@ -3,6 +3,10 @@
 
 package com.taqisystems.bus.android.ui.screens
 
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.taqisystems.bus.android.R
+
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -55,10 +59,10 @@ private fun deviationColor(sec: Double): Color = when {
     else                        -> RedEarly
 }
 
-private fun deviationLabel(sec: Double): String = when {
-    kotlin.math.abs(sec) < 60.0 -> "On time"
-    sec > 0 -> "+${kotlin.math.round(kotlin.math.abs(sec) / 60).toInt()} min late"
-    else    -> "${kotlin.math.round(kotlin.math.abs(sec) / 60).toInt()} min early"
+private fun deviationLabel(sec: Double, onTimeStr: String, lateStr: String, earlyStr: String): String = when {
+    kotlin.math.abs(sec) < 60.0 -> onTimeStr
+    sec > 0 -> lateStr.format(kotlin.math.round(kotlin.math.abs(sec) / 60).toInt())
+    else    -> earlyStr.format(kotlin.math.round(kotlin.math.abs(sec) / 60).toInt())
 }
 
 private fun formatTime(secondsFromMidnight: Int): String {
@@ -106,6 +110,14 @@ fun RouteDetailsScreen(
     val isSaved      = savedRoutes.any { it.routeId == routeId }
     val isLive       = details?.predicted == true
 
+    // Route brand color — from live arrival data, falls back to AccentRed
+    val headerBg: Color = uiState.currentArrival?.routeColor?.let {
+        runCatching { Color(android.graphics.Color.parseColor("#$it")) }.getOrNull()
+    } ?: AccentRed
+    val badgeTextColor: Color = uiState.currentArrival?.routeTextColor?.let {
+        runCatching { Color(android.graphics.Color.parseColor("#$it")) }.getOrNull()
+    } ?: headerBg
+
     // Progress along route (0..1)
     val routeProgress = if ((details?.totalDistance ?: 0.0) > 0.0)
         (details!!.distanceAlongTrip / details.totalDistance).coerceIn(0.0, 1.0).toFloat()
@@ -125,6 +137,11 @@ fun RouteDetailsScreen(
 
     val listState         = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val routeSavedText = stringResource(R.string.route_saved_snack)
+    val routeRemovedText = stringResource(R.string.route_removed_snack)
+    val devOnTime = stringResource(R.string.route_deviation_on_time)
+    val devLate = stringResource(R.string.route_deviation_late)
+    val devEarly = stringResource(R.string.route_deviation_early)
     val scope             = rememberCoroutineScope()
 
     // Scroll to bus position on load/update
@@ -148,11 +165,11 @@ fun RouteDetailsScreen(
             if (currentIndex >= 0) {
                 FloatingActionButton(
                     onClick = { scope.launch { listState.animateScrollToItem(currentIndex) } },
-                    containerColor = AccentRed,
+                    containerColor = headerBg,
                     contentColor = Color.White,
                     modifier = Modifier.navigationBarsPadding(),
                 ) {
-                    Icon(Icons.Default.MyLocation, contentDescription = "Jump to bus position")
+                    Icon(Icons.Default.MyLocation, contentDescription = stringResource(R.string.route_jump_to_bus_cd))
                 }
             }
         },
@@ -166,7 +183,7 @@ fun RouteDetailsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(BgHeader)
+                    .background(headerBg)
                     .statusBarsPadding()
                     .padding(bottom = 14.dp),
             ) {
@@ -195,7 +212,7 @@ fun RouteDetailsScreen(
                     ) {
                         Text(
                             routeLabel,
-                            color      = AccentRed,
+                            color      = badgeTextColor,
                             fontSize   = 16.sp,
                             fontWeight = FontWeight.ExtraBold,
                         )
@@ -233,7 +250,7 @@ fun RouteDetailsScreen(
                                         .clip(CircleShape)
                                         .background(Color(0xFF81C784)),
                                 )
-                                Text("LIVE", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.8.sp)
+                                Text(stringResource(R.string.route_live_chip), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.8.sp)
                             }
                         }
                     } else if (tripId.isNotBlank()) {
@@ -244,7 +261,7 @@ fun RouteDetailsScreen(
                                 .border(1.dp, Color.White.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
                                 .padding(horizontal = 8.dp, vertical = 3.dp),
                         ) {
-                            Text("SCHED", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.8.sp)
+                            Text(stringResource(R.string.route_sched_chip), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.8.sp)
                         }
                     }
 
@@ -261,14 +278,14 @@ fun RouteDetailsScreen(
                         )
                         scope.launch {
                             snackbarHostState.showSnackbar(
-                                if (isSaved) "Removed from saved routes" else "Route saved",
+                                if (isSaved) routeRemovedText else routeSavedText,
                                 duration = SnackbarDuration.Short,
                             )
                         }
                     }) {
                         Icon(
                             if (isSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                            contentDescription = if (isSaved) "Remove saved" else "Save route",
+                            contentDescription = if (isSaved) stringResource(R.string.route_remove_saved) else stringResource(R.string.route_save),
                             tint     = Color.White,
                             modifier = Modifier.size(22.dp),
                         )
@@ -278,7 +295,7 @@ fun RouteDetailsScreen(
                     IconButton(onClick = { viewModel.refreshNow() }) {
                         Icon(
                             Icons.Default.Refresh,
-                            contentDescription = "Refresh",
+                            contentDescription = stringResource(R.string.action_refresh),
                             tint     = Color.White,
                             modifier = Modifier.size(22.dp),
                         )
@@ -314,7 +331,7 @@ fun RouteDetailsScreen(
                                     modifier = Modifier.size(12.dp),
                                 )
                                 Text(
-                                    deviationLabel(details.scheduleDeviation),
+                                    deviationLabel(details.scheduleDeviation, devOnTime, devLate, devEarly),
                                     color      = if (isLive) Color.White else Color.White.copy(alpha = 0.70f),
                                     fontSize   = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -335,7 +352,7 @@ fun RouteDetailsScreen(
                                 ) {
                                     Icon(Icons.Default.LinearScale, contentDescription = null, tint = Color.White.copy(alpha = 0.85f), modifier = Modifier.size(12.dp))
                                     Text(
-                                        "Stop ${currentIndex + 1} / ${details.stops.size}",
+                                        stringResource(R.string.route_stop_count, currentIndex + 1, details.stops.size),
                                         color    = Color.White.copy(alpha = 0.85f),
                                         fontSize = 11.sp,
                                     )
@@ -350,7 +367,7 @@ fun RouteDetailsScreen(
                                 color = Color.White.copy(alpha = 0.15f),
                             ) {
                                 Text(
-                                    "$stopsRemaining stop${if (stopsRemaining == 1) "" else "s"} left",
+                                    pluralStringResource(R.plurals.route_stops_left, stopsRemaining, stopsRemaining),
                                     color    = Color.White.copy(alpha = 0.85f),
                                     fontSize = 11.sp,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -420,7 +437,7 @@ fun RouteDetailsScreen(
                             modifier            = Modifier.align(Alignment.Center),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            CircularProgressIndicator(color = AccentRed)
+                            CircularProgressIndicator(color = headerBg)
                             Spacer(Modifier.height(12.dp))
                             Text(
                                 "Loading trip\u2026",
@@ -441,12 +458,12 @@ fun RouteDetailsScreen(
                             Icon(
                                 Icons.Default.CloudOff,
                                 contentDescription = null,
-                                tint     = AccentRed.copy(alpha = 0.5f),
+                                tint     = headerBg.copy(alpha = 0.5f),
                                 modifier = Modifier.size(48.dp),
                             )
                             Text(
-                                uiState.error ?: "Error",
-                                color     = AccentRed,
+                                uiState.error ?: stringResource(R.string.route_error_generic),
+                                color     = headerBg,
                                 fontSize  = 15.sp,
                                 textAlign = TextAlign.Center,
                             )
@@ -464,12 +481,12 @@ fun RouteDetailsScreen(
                             Icon(
                                 Icons.Default.DirectionsBus,
                                 contentDescription = null,
-                                tint     = AccentRed.copy(alpha = 0.35f),
+                                tint     = headerBg.copy(alpha = 0.35f),
                                 modifier = Modifier.size(56.dp),
                             )
-                            Text("No trip selected", color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.route_no_trip), color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                             Text(
-                                "Tap an arrival from the stop screen to see the live bus position and stop sequence.",
+                                stringResource(R.string.route_no_trip_hint),
                                 color     = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize  = 13.sp,
                                 textAlign = TextAlign.Center,
@@ -485,7 +502,7 @@ fun RouteDetailsScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .align(Alignment.TopCenter),
-                                color = AccentRed,
+                                color = headerBg,
                             )
                         }
 
@@ -525,7 +542,7 @@ fun RouteDetailsScreen(
                                                     .scale(pulseScale)
                                                     .size(18.dp)
                                                     .clip(CircleShape)
-                                                    .background(AccentRed)
+                                                    .background(headerBg)
                                                     .border(3.dp, Color.White, CircleShape),
                                             )
                                             isNext -> Box(
@@ -533,20 +550,20 @@ fun RouteDetailsScreen(
                                                     .size(14.dp)
                                                     .clip(CircleShape)
                                                     .background(MaterialTheme.colorScheme.surface)
-                                                    .border(2.dp, AccentRed, CircleShape),
+                                                    .border(2.dp, headerBg, CircleShape),
                                             )
                                             isFirstStop -> Box(
                                                 modifier = Modifier
                                                     .size(14.dp)
                                                     .clip(RoundedCornerShape(3.dp))
-                                                    .background(if (isPassed) TimelinePast else AccentRed.copy(alpha = 0.75f)),
+                                                    .background(if (isPassed) TimelinePast else headerBg.copy(alpha = 0.75f)),
                                             )
                                             isLastStop -> Box(
                                                 modifier = Modifier
                                                     .size(13.dp)
                                                     .graphicsLayer(rotationZ = 45f)
                                                     .clip(RoundedCornerShape(2.dp))
-                                                    .background(if (isPassed) TimelinePast else AccentRed.copy(alpha = 0.75f)),
+                                                    .background(if (isPassed) TimelinePast else headerBg.copy(alpha = 0.75f)),
                                             )
                                             isPassed -> Box(
                                                 modifier = Modifier
@@ -582,7 +599,7 @@ fun RouteDetailsScreen(
                                         else      -> Color.Transparent
                                     }
                                     val borderColor: Color? = when {
-                                        isCurrent -> AccentRed.copy(alpha = 0.35f)
+                                        isCurrent -> headerBg.copy(alpha = 0.35f)
                                         isMyStop  -> AmberPin.copy(alpha = 0.45f)
                                         else      -> null
                                     }
@@ -623,7 +640,7 @@ fun RouteDetailsScreen(
                                             if (isCurrent) {
                                                 Surface(
                                                     shape = RoundedCornerShape(5.dp),
-                                                    color = AccentRed,
+                                                    color = headerBg,
                                                 ) {
                                                     Row(
                                                         modifier              = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -631,7 +648,7 @@ fun RouteDetailsScreen(
                                                         horizontalArrangement = Arrangement.spacedBy(3.dp),
                                                     ) {
                                                         Icon(Icons.Default.DirectionsBus, contentDescription = null, tint = Color.White, modifier = Modifier.size(10.dp))
-                                                        Text("HERE", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.6.sp)
+                                                        Text(stringResource(R.string.route_here_badge), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.6.sp)
                                                     }
                                                 }
                                             }
@@ -639,12 +656,12 @@ fun RouteDetailsScreen(
                                             if (isNext) {
                                                 Surface(
                                                     shape  = RoundedCornerShape(5.dp),
-                                                    color  = AccentRed.copy(alpha = 0.08f),
-                                                    border = BorderStroke(1.dp, AccentRed.copy(alpha = 0.35f)),
+                                                    color  = headerBg.copy(alpha = 0.08f),
+                                                    border = BorderStroke(1.dp, headerBg.copy(alpha = 0.35f)),
                                                 ) {
                                                     Text(
-                                                        "NEXT",
-                                                        color      = AccentRed,
+                                                        stringResource(R.string.route_next_badge),
+                                                        color      = headerBg,
                                                         fontSize   = 9.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         letterSpacing = 0.6.sp,
@@ -671,7 +688,7 @@ fun RouteDetailsScreen(
                                                             modifier = Modifier.size(11.dp),
                                                         )
                                                         Text(
-                                                            "Your stop",
+                                                            stringResource(R.string.route_your_stop_badge),
                                                             color      = AmberText,
                                                             fontSize   = 9.sp,
                                                             fontWeight = FontWeight.SemiBold,
@@ -720,7 +737,7 @@ fun RouteDetailsScreen(
                                                 )
                                                 // Show scheduled in muted text alongside
                                                 Text(
-                                                    "sched ${formatTime(stop.arrivalTime)}",
+                                                    stringResource(R.string.route_sched_prefix, formatTime(stop.arrivalTime)),
                                                     color    = schedColor.copy(alpha = 0.55f),
                                                     fontSize = 10.sp,
                                                 )

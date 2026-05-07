@@ -10,14 +10,18 @@ import com.taqisystems.bus.android.ServiceLocator
 import com.taqisystems.bus.android.data.model.ObaRegion
 import com.taqisystems.bus.android.data.model.OtpItinerary
 import com.taqisystems.bus.android.data.model.PlaceResult
+import com.taqisystems.bus.android.data.model.SavedPlace
 import com.taqisystems.bus.android.data.model.outerBoundingBox
+import com.taqisystems.bus.android.ui.util.UiText
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class TripPlannerUiState(
@@ -29,7 +33,7 @@ data class TripPlannerUiState(
     val itineraries: List<OtpItinerary> = emptyList(),
     val selectedItinerary: OtpItinerary? = null,
     val loading: Boolean = false,
-    val error: String? = null,
+    val error: UiText? = null,
     val activeRegion: ObaRegion? = null,
     val selectedMode: String = "TRANSIT,WALK",
     val departMode: String = "now",
@@ -50,6 +54,11 @@ class TripPlannerViewModel : ViewModel() {
 
     private val _uiState = MutableStateFlow(TripPlannerUiState())
     val uiState: StateFlow<TripPlannerUiState> = _uiState.asStateFlow()
+
+    val homePlace: StateFlow<SavedPlace?> = prefs.homePlace
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val workPlace: StateFlow<SavedPlace?> = prefs.workPlace
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private var searchJob: Job? = null
 
@@ -164,12 +173,28 @@ class TripPlannerViewModel : ViewModel() {
             }.onSuccess { result ->
                 _uiState.value = _uiState.value.copy(itineraries = result, loading = false)
             }.onFailure { e ->
-                _uiState.value = _uiState.value.copy(error = e.message, loading = false)
+                _uiState.value = _uiState.value.copy(error = e.message?.let { UiText.Raw(it) }, loading = false)
             }
         }
     }
 
     fun clearError() { _uiState.value = _uiState.value.copy(error = null) }
+
+    fun saveHomePlace(place: SavedPlace?) {
+        viewModelScope.launch { prefs.setHomePlace(place) }
+    }
+
+    fun saveWorkPlace(place: SavedPlace?) {
+        viewModelScope.launch { prefs.setWorkPlace(place) }
+    }
+
+    /** Fill origin or destination with a saved place.
+     *  If [preferDestination] is true, or if origin is already set, fills destination; otherwise origin. */
+    fun fillWithSavedPlace(place: PlaceResult, preferDestination: Boolean = false) {
+        val s = _uiState.value
+        if (preferDestination || s.origin != null) selectDestination(place)
+        else selectOrigin(place)
+    }
 }
 
 class TripPlannerViewModelFactory : ViewModelProvider.Factory {

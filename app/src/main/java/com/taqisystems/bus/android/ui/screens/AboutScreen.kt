@@ -3,6 +3,8 @@
 
 package com.taqisystems.bus.android.ui.screens
 
+import androidx.compose.ui.res.stringResource
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -66,10 +68,10 @@ fun AboutScreen(navController: NavController) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("About ${BuildConfig.APP_NAME}") },
+                title = { Text(stringResource(R.string.about_title)) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.action_back))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -107,13 +109,13 @@ fun AboutScreen(navController: NavController) {
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    "Version ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})",
+                    stringResource(R.string.about_version, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    "Real-time transit information for Malaysia,\npowered by OneBusAway & OpenTripPlanner.",
+                    stringResource(R.string.about_tagline),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -124,15 +126,15 @@ fun AboutScreen(navController: NavController) {
 
             // ── Developer credit ──────────────────────────────────────────────
             Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
-                SectionHeader("Developer")
+                SectionHeader(stringResource(R.string.about_section_developer))
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Taqi Systems",
+                    stringResource(R.string.about_developer_name),
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    "Kota Bharu, Kelantan, Malaysia",
+                    stringResource(R.string.about_developer_location),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -159,10 +161,10 @@ fun AboutScreen(navController: NavController) {
 
             // ── Open-source licences ──────────────────────────────────────────
             Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
-                SectionHeader("Open-Source Libraries")
+                SectionHeader(stringResource(R.string.about_section_libraries))
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "${BuildConfig.APP_NAME} is built with the following open-source libraries:",
+                    stringResource(R.string.about_libraries_intro),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

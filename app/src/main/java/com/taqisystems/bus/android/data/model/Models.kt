@@ -117,6 +117,12 @@ data class ObaArrival(
     val stopSequence: Int = 0,
     /** Transit mode inferred from the GTFS route type of this arrival's route. */
     val transitType: TransitType = TransitType.BUS,
+    /** GTFS route colour hex string without '#', e.g. "FF5500". Null when not provided. */
+    val routeColor: String? = null,
+    /** GTFS route text colour hex string without '#'. Null when not provided. */
+    val routeTextColor: String? = null,
+    /** Display name of the operating agency. Empty string when unavailable. */
+    val agencyName: String = "",
 ) {
     /**
      * Recalculates minutes-until-arrival from the stored timestamps at the moment of calling,
@@ -307,3 +313,12 @@ data class SavedRoute(
     val longName: String,
     val headsign: String,
 )
+
+// ─── Saved Place (Home / Work quick-fill) ────────────────────────────────────
+data class SavedPlace(
+    val label: String,
+    val lat: Double,
+    val lon: Double,
+) {
+    fun toPlaceResult(): PlaceResult = PlaceResult(label = label, lat = lat, lon = lon)
+}

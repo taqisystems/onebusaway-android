@@ -13,6 +13,7 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.taqisystems.bus.android.data.model.SavedPlace
 import com.taqisystems.bus.android.data.model.SavedRoute
 import com.taqisystems.bus.android.data.model.SavedStop
 import com.taqisystems.bus.android.data.model.InboxNotification
@@ -42,6 +43,9 @@ class AppPreferences(private val context: Context) {
         val LAST_REMINDER_MINUTES = intPreferencesKey("last_reminder_minutes")
         /** Map<stopId, List<SavedRoute>> — routes known to serve each stop. */
         val ROUTES_BY_STOP = stringPreferencesKey("routes_by_stop_json")
+        val THEME_MODE = stringPreferencesKey("theme_mode")
+        val HOME_PLACE = stringPreferencesKey("home_place_json")
+        val WORK_PLACE = stringPreferencesKey("work_place_json")
     }
 
     val regionId: Flow<String?> = context.dataStore.data.map { it[Keys.REGION_ID] }.distinctUntilChanged()
@@ -63,6 +67,19 @@ class AppPreferences(private val context: Context) {
     }
 
     val unreadNotificationCount: Flow<Int> = notifications.map { list -> list.count { !it.isRead } }
+
+    val themeMode: Flow<String> = context.dataStore.data
+        .map { it[Keys.THEME_MODE] ?: "system" }.distinctUntilChanged()
+
+    val homePlace: Flow<SavedPlace?> = context.dataStore.data.map { prefs ->
+        val json = prefs[Keys.HOME_PLACE] ?: return@map null
+        runCatching { gson.fromJson(json, SavedPlace::class.java) }.getOrNull()
+    }.distinctUntilChanged()
+
+    val workPlace: Flow<SavedPlace?> = context.dataStore.data.map { prefs ->
+        val json = prefs[Keys.WORK_PLACE] ?: return@map null
+        runCatching { gson.fromJson(json, SavedPlace::class.java) }.getOrNull()
+    }.distinctUntilChanged()
 
     /** The last reminder time (in minutes) the user selected. Defaults to 5. */
     val lastReminderMinutes: Flow<Int> = context.dataStore.data.map { it[Keys.LAST_REMINDER_MINUTES] ?: 5 }.distinctUntilChanged()
@@ -248,6 +265,24 @@ class AppPreferences(private val context: Context) {
     /** Persist the last reminder time selection so it is pre-selected next time. */
     suspend fun setLastReminderMinutes(minutes: Int) {
         context.dataStore.edit { it[Keys.LAST_REMINDER_MINUTES] = minutes }
+    }
+
+    suspend fun setThemeMode(mode: String) {
+        context.dataStore.edit { it[Keys.THEME_MODE] = mode }
+    }
+
+    suspend fun setHomePlace(place: SavedPlace?) {
+        context.dataStore.edit { prefs ->
+            if (place == null) prefs.remove(Keys.HOME_PLACE)
+            else prefs[Keys.HOME_PLACE] = gson.toJson(place)
+        }
+    }
+
+    suspend fun setWorkPlace(place: SavedPlace?) {
+        context.dataStore.edit { prefs ->
+            if (place == null) prefs.remove(Keys.WORK_PLACE)
+            else prefs[Keys.WORK_PLACE] = gson.toJson(place)
+        }
     }
 
     /** Persist the set of routes that serve [stopId] (extracted from arrivals). */

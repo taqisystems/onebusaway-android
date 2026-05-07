@@ -3,6 +3,9 @@
 
 package com.taqisystems.bus.android.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.taqisystems.bus.android.R
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -51,13 +54,16 @@ fun StopDetailsScreen(
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val undoText = stringResource(R.string.action_undo)
+    val stopSavedText = stringResource(R.string.stop_saved_snack)
+    val stopRemovedText = stringResource(R.string.stop_removed_snack)
     LaunchedEffect(uiState.reminderMessage) {
         val msg = uiState.reminderMessage
         if (!msg.isNullOrBlank()) {
             val canUndo = uiState.lastCancelledReminder != null
             val result = snackbarHostState.showSnackbar(
                 message = msg,
-                actionLabel = if (canUndo) "Undo" else null,
+                actionLabel = if (canUndo) undoText else null,
                 duration = SnackbarDuration.Short,
             )
             if (result == SnackbarResult.ActionPerformed) {
@@ -115,7 +121,7 @@ fun StopDetailsScreen(
                     }
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
-                            if (sheetHasReminder) "Reminder set" else "Set a reminder",
+                            if (sheetHasReminder) stringResource(R.string.reminder_set_snack) else stringResource(R.string.reminder_set_title),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -178,7 +184,7 @@ fun StopDetailsScreen(
                     ) {
                         Icon(Icons.Default.NotificationsOff, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Cancel reminder")
+                        Text(stringResource(R.string.reminder_cancel))
                     }
                 } else {
                     // ── Set flow ────────────────────────────────────────────
@@ -205,7 +211,7 @@ fun StopDetailsScreen(
                                     modifier = Modifier.size(20.dp),
                                 )
                                 Text(
-                                    "The bus arrives too soon to set a reminder.",
+                                    stringResource(R.string.reminder_too_soon),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onErrorContainer,
                                 )
@@ -213,7 +219,7 @@ fun StopDetailsScreen(
                         }
                     } else {
                         Text(
-                            "Notify me before arrival",
+                            stringResource(R.string.reminder_notify_before),
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -304,7 +310,7 @@ fun StopDetailsScreen(
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(
                             Icons.Default.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = stringResource(R.string.action_back),
                             tint = MaterialTheme.colorScheme.onSurface,
                         )
                     }
@@ -314,21 +320,21 @@ fun StopDetailsScreen(
                         viewModel.toggleSaved(stopId, stopName, stopCode)
                         scope.launch {
                             snackbarHostState.showSnackbar(
-                                if (isSaved) "Stop removed from saved" else "Stop saved",
+                                if (isSaved) stopRemovedText else stopSavedText,
                                 duration = SnackbarDuration.Short,
                             )
                         }
                     }) {
                         Icon(
                             if (isSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                            contentDescription = if (isSaved) "Remove from saved" else "Save stop",
+                            contentDescription = if (isSaved) stringResource(R.string.stop_remove_saved) else stringResource(R.string.stop_save),
                             tint = if (isSaved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                         )
                     }
                     IconButton(onClick = { viewModel.refresh() }) {
                         Icon(
                             Icons.Default.Refresh,
-                            contentDescription = "Refresh",
+                            contentDescription = stringResource(R.string.action_refresh),
                             tint = MaterialTheme.colorScheme.onSurface,
                         )
                     }
@@ -352,9 +358,9 @@ fun StopDetailsScreen(
                     ) {
                         Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(48.dp))
                         Spacer(Modifier.height(8.dp))
-                        Text(uiState.error ?: "Error loading arrivals", color = MaterialTheme.colorScheme.error)
+                        Text(uiState.error ?: stringResource(R.string.stop_error_loading), color = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.height(16.dp))
-                        Button(onClick = { viewModel.refresh() }) { Text("Retry") }
+                        Button(onClick = { viewModel.refresh() }) { Text(stringResource(R.string.action_retry)) }
                     }
                 }
                 else -> {
@@ -406,14 +412,14 @@ fun StopDetailsScreen(
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 32.dp),
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    Text("No upcoming arrivals", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(stringResource(R.string.stop_no_upcoming), color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                             // Show routes known to serve this stop (from cache) so the user can still bookmark them
                             if (uiState.knownRoutes.isNotEmpty()) {
                                 item {
                                     Text(
-                                        "Routes serving this stop",
+                                        stringResource(R.string.stop_routes_serving),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -555,9 +561,9 @@ private fun DetailedArrivalRow(
         ArrivalStatus.UNKNOWN   -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val statusLabel = when (arrival.status) {
-        ArrivalStatus.ON_TIME   -> "On Time"
-        ArrivalStatus.DELAYED   -> "Delayed"
-        ArrivalStatus.EARLY     -> "Early"
+        ArrivalStatus.ON_TIME   -> stringResource(R.string.status_on_time)
+        ArrivalStatus.DELAYED   -> stringResource(R.string.status_delayed)
+        ArrivalStatus.EARLY     -> stringResource(R.string.status_early)
         ArrivalStatus.SCHEDULED -> null
         ArrivalStatus.UNKNOWN   -> null
     }
@@ -652,7 +658,10 @@ private fun DetailedArrivalRow(
                 // Row 3: status / headway info
                 if (arrival.isHeadway && !arrival.predicted) {
                     // Frequency service with no real-time data
-                    val intervalText = if (headwayMins != null) "Every ~$headwayMins min$headwayUntil" else "Frequency service$headwayUntil"
+                    val intervalText = if (headwayMins != null)
+                        stringResource(R.string.arrival_every_headway, headwayMins) + headwayUntil
+                    else
+                        stringResource(R.string.arrival_frequency_service) + headwayUntil
                     Text(
                         intervalText,
                         style = MaterialTheme.typography.labelSmall,
@@ -662,12 +671,14 @@ private fun DetailedArrivalRow(
                 } else if (arrival.isHeadway && arrival.predicted) {
                     // Headway with real-time — show status + interval + until
                     val statusNote = when (arrival.status) {
-                        ArrivalStatus.ON_TIME -> "On Time"
-                        ArrivalStatus.DELAYED -> "Delayed (+${arrival.deviationMinutes} min)"
-                        ArrivalStatus.EARLY   -> "Early"
+                        ArrivalStatus.ON_TIME -> stringResource(R.string.status_on_time)
+                        ArrivalStatus.DELAYED -> stringResource(R.string.status_delayed)
+                        ArrivalStatus.EARLY   -> stringResource(R.string.status_early)
                         else -> null
                     }
-                    val freqNote = if (headwayMins != null) " · Every ~$headwayMins min$headwayUntil" else headwayUntil
+                    val freqNote = if (headwayMins != null)
+                        " · " + stringResource(R.string.arrival_every_headway, headwayMins) + headwayUntil
+                    else headwayUntil
                     if (statusNote != null) {
                         Text(
                             statusNote + freqNote,
@@ -683,15 +694,19 @@ private fun DetailedArrivalRow(
                 if (!arrival.isHeadway && arrival.scheduledArrivalTime > 0) {
                     val schedFmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
                     val schedStr = schedFmt.format(java.util.Date(arrival.scheduledArrivalTime))
+                    val notRealTimeStr = stringResource(R.string.arrival_not_realtime)
+                    val minLateStr = stringResource(R.string.arrival_min_late, arrival.deviationMinutes)
+                    val minEarlyStr = stringResource(R.string.arrival_min_early, kotlin.math.abs(arrival.deviationMinutes))
+                    val onTimeStr = stringResource(R.string.arrival_on_time_note)
                     val deviationText = when {
                         !arrival.predicted ->
-                            " · not real-time"
+                            " · $notRealTimeStr"
                         arrival.predicted && arrival.status == ArrivalStatus.DELAYED && arrival.deviationMinutes > 0 ->
-                            " · +${arrival.deviationMinutes} min late"
+                            " · $minLateStr"
                         arrival.predicted && arrival.status == ArrivalStatus.EARLY && arrival.deviationMinutes != 0 ->
-                            " · ${kotlin.math.abs(arrival.deviationMinutes)} min early"
+                            " · $minEarlyStr"
                         arrival.predicted && arrival.status == ArrivalStatus.ON_TIME ->
-                            " · arrives on time"
+                            " · $onTimeStr"
                         else -> ""
                     }
                     Row(
@@ -699,7 +714,7 @@ private fun DetailedArrivalRow(
                         horizontalArrangement = Arrangement.spacedBy(0.dp),
                     ) {
                         Text(
-                            "Sched $schedStr",
+                            stringResource(R.string.arrival_sched, schedStr),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -726,14 +741,14 @@ private fun DetailedArrivalRow(
                     if (hasReminder) {
                         Icon(
                             Icons.Default.Notifications,
-                            contentDescription = "Cancel reminder",
+                            contentDescription = stringResource(R.string.reminder_cancel),
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp),
                         )
                     } else {
                         Icon(
                             Icons.Outlined.NotificationsNone,
-                            contentDescription = "Set reminder",
+                            contentDescription = stringResource(R.string.reminder_set_title),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(20.dp),
                         )
@@ -767,7 +782,7 @@ private fun DetailedArrivalRow(
                     }
                     minutes <= 0 -> {
                         Text(
-                            "Now",
+                            stringResource(R.string.status_now),
                             style = MaterialTheme.typography.headlineMedium,
                             color = StatusOnTime,
                             fontWeight = FontWeight.Bold,

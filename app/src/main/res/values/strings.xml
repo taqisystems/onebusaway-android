@@ -1,3 +1,463 @@
 <resources>
     <string name="app_name">Kelantan Bus</string>
+
+    <!-- ════════════ Navigation ════════════ -->
+    <string name="nav_map">Map</string>
+    <string name="nav_plan">Plan</string>
+    <string name="nav_saved">Saved</string>
+    <string name="nav_reminders">Reminders</string>
+    <string name="nav_more">More</string>
+
+    <!-- ════════════ Generic actions ════════════ -->
+    <string name="action_back">Back</string>
+    <string name="action_refresh">Refresh</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_remove">Remove</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_undo">Undo</string>
+    <string name="action_clear">Clear</string>
+    <string name="action_clear_all">Clear All</string>
+    <string name="action_close">Close</string>
+    <string name="action_show">Show</string>
+    <string name="action_plan">Plan</string>
+    <string name="action_stop">Stop</string>
+    <string name="action_ok">OK</string>
+    <string name="action_confirm">Confirm</string>
+    <string name="action_go_back">Go Back</string>
+
+    <!-- ════════════ More screen ════════════ -->
+    <string name="more_tagline">Real-time transit for Malaysia</string>
+    <string name="more_section_manage">Manage</string>
+    <string name="more_section_app">App</string>
+    <string name="more_reminders_no_active">No active reminders</string>
+    <!-- %d = reminder count -->
+    <string name="more_reminders_active">%d active</string>
+    <string name="more_settings_subtitle">Region, preferences</string>
+    <string name="more_about_subtitle">App info &amp; open-source licences</string>
+    <string name="more_status_title">Service Status</string>
+    <string name="more_status_subtitle">Check if all services are running</string>
+    <string name="more_feedback_title">Feedback</string>
+    <string name="more_feedback_subtitle">Report issues or suggest new features</string>
+
+    <!-- ════════════ About screen ════════════ -->
+    <string name="about_title">About Kelantan Bus</string>
+    <!-- %1$s = versionName, %2$d = versionCode -->
+    <string name="about_version">Version %1$s (build %2$d)</string>
+    <string name="about_tagline">Real-time transit information for Malaysia,\npowered by OneBusAway &amp; OpenTripPlanner.</string>
+    <string name="about_section_developer">Developer</string>
+    <string name="about_developer_name">Taqi Systems</string>
+    <string name="about_developer_location">Kota Bharu, Kelantan, Malaysia</string>
+    <!-- %d = year -->
+    <string name="about_copyright">© %d Taqi Systems. All rights reserved. This application and its source code are proprietary and confidential. Copying, distribution, or modification without authorisation is strictly prohibited.</string>
+    <string name="about_section_libraries">Open-Source Libraries</string>
+    <string name="about_libraries_intro">Kelantan Bus is built using the following open-source libraries:</string>
+
+    <!-- ════════════ Saved screen ════════════ -->
+    <string name="saved_title">Saved</string>
+    <string name="saved_tab_stops">Stops</string>
+    <string name="saved_tab_routes">Routes</string>
+    <string name="saved_stops_empty_title">No saved stops</string>
+    <string name="saved_stops_empty_subtitle">Tap the bookmark icon on any stop to save it here.</string>
+    <string name="saved_routes_empty_title">No saved routes</string>
+    <string name="saved_routes_empty_subtitle">Tap the bookmark icon on any route to save it here.</string>
+    <!-- %s = stop code -->
+    <string name="saved_stop_code">Stop #%s</string>
+    <string name="saved_plan_trip">Plan Trip</string>
+    <plurals name="saved_stops_count">
+        <item quantity="one">%d stop</item>
+        <item quantity="other">%d stops</item>
+    </plurals>
+    <plurals name="saved_routes_count">
+        <item quantity="one">%d route</item>
+        <item quantity="other">%d routes</item>
+    </plurals>
+    <plurals name="notifications_count">
+        <item quantity="one">%d notification</item>
+        <item quantity="other">%d notifications</item>
+    </plurals>
+
+    <!-- ════════════ Settings screen ════════════ -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_section_region">REGION</string>
+    <string name="settings_auto_detect">Auto-detect region</string>
+    <!-- %s = detected region name -->
+    <string name="settings_auto_detect_currently">Currently in: %s</string>
+    <string name="settings_detecting_location">Detecting your location\u2026</string>
+    <string name="settings_manual_region">Selecting region manually</string>
+    <string name="settings_section_available_regions">AVAILABLE REGIONS</string>
+    <string name="settings_section_select_region">SELECT REGION</string>
+    <string name="settings_your_area">Your area</string>
+    <!-- %d = metres -->
+    <string name="settings_distance_m">%d m away</string>
+    <!-- %s = formatted km string -->
+    <string name="settings_distance_km">%s km away</string>
+    <string name="settings_region_selected">Selected</string>
+    <!-- Language section -->
+    <string name="settings_section_language">LANGUAGE</string>
+    <string name="settings_lang_english">English</string>
+    <string name="settings_lang_malay">Bahasa Malaysia</string>
+    <!-- Theme section -->
+    <string name="settings_section_theme">DISPLAY</string>
+    <string name="settings_theme_system">System default</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_refresh_regions">Refresh regions</string>
+    <string name="map_switch_region_cd">Switch region</string>
+    <string name="settings_tap_to_switch">Tap any region below to switch</string>
+
+    <!-- ════════════ Notifications screen ════════════ -->
+    <string name="notifications_title">Notifications</string>
+    <string name="notifications_empty">No notifications yet</string>
+    <string name="notifications_empty_subtitle">You\'ll see updates from Kelantan Bus here.</string>
+    <string name="notifications_tap_to_view">Tap to view</string>
+    <string name="notifications_delete">Delete</string>
+    <!-- ── Time-ago labels ── -->
+    <string name="time_just_now">Just now</string>
+    <string name="time_yesterday">Yesterday</string>
+    <!-- %d = minutes -->
+    <string name="time_minutes_ago">%d min ago</string>
+    <!-- %d = hours -->
+    <string name="time_hours_ago">%d hr ago</string>
+    <!-- %d = days -->
+    <string name="time_days_ago">%d days ago</string>
+
+    <!-- ════════════ Reminders screen ════════════ -->
+    <string name="reminders_title">Reminders</string>
+    <string name="reminders_empty">No active reminders</string>
+    <string name="reminders_empty_hint">Tap the time badge on any arrival to set a reminder.</string>
+    <!-- %d = reminder count -->
+    <string name="reminders_active">%d active</string>
+    <string name="reminders_cancel_all_cd">Cancel all reminders</string>
+    <string name="reminder_cancelled_snack">Reminder cancelled</string>
+    <!-- Arrival row: unpin -->
+    <string name="arrival_unpin_cd">Unpin trip</string>
+    <!-- %d = minutes -->
+    <string name="reminders_min_before">%d min before</string>
+    <!-- %s = time string -->
+    <string name="reminders_at_time">at %s</string>
+    <!-- %1$s = routeShort, %2$s = headsign -->
+    <string name="reminders_route_headsign">Route %1$s → %2$s</string>
+    <!-- %s = routeShort -->
+    <string name="reminders_route">Route %s</string>
+    <string name="reminders_bus_trip">Bus trip</string>
+    <string name="notif_reminder_body">Arriving in %1$d min · %2$s</string>
+    <string name="notif_reminder_body_no_stop">Arriving in %d min</string>
+
+    <!-- ════════════ Onboarding ════════════ -->
+    <string name="onboarding_logo_cd">Kelantan Bus logo</string>
+    <string name="onboarding_welcome_title">Welcome to Kelantan Bus</string>
+    <string name="onboarding_welcome_body">Your real-time transit companion for Malaysia. Get live arrivals, plan trips, and explore the network.</string>
+    <string name="onboarding_map_title">Live Bus Arrivals</string>
+    <string name="onboarding_map_body">Tap any stop on the map to see real-time arrivals with live status — on time, late, or early.</string>
+    <string name="onboarding_plan_title">Plan Your Journey</string>
+    <string name="onboarding_plan_body">Get step-by-step transit directions from your location to anywhere in the network.</string>
+    <string name="onboarding_saved_title">Save Your Favourites</string>
+    <string name="onboarding_saved_body">Bookmark stops and routes for one-tap access. Saved items are always ready when you need them.</string>
+    <string name="onboarding_reminder_title">Never Miss Your Bus</string>
+    <string name="onboarding_reminder_body">Set arrival reminders on any bus — get notified before the bus arrives at your stop so you\'re always on time.</string>
+    <string name="onboarding_more_title">More at Your Fingertips</string>
+    <string name="onboarding_more_body">Access notifications, active reminders, settings, and app info all from the More tab.</string>
+    <string name="onboarding_skip">Skip</string>
+    <string name="onboarding_next">Next</string>
+    <string name="onboarding_get_started">Get Started</string>
+
+    <!-- ════════════ Feedback screen ════════════ -->
+    <string name="feedback_title">Feedback</string>
+    <string name="feedback_headline">We\'d love to hear from you</string>
+    <string name="feedback_body">Report an issue, suggest a feature, or just say hello — pick your preferred channel below.</string>
+    <string name="feedback_whatsapp_title">WhatsApp</string>
+    <string name="feedback_whatsapp_subtitle">Chat with us directly on WhatsApp Business</string>
+    <string name="feedback_whatsapp_button">Open WhatsApp</string>
+    <string name="feedback_or">or</string>
+    <string name="feedback_facebook_title">Facebook Page</string>
+    <string name="feedback_facebook_subtitle">Message us on the official Kelantan Bus Facebook page</string>
+    <string name="feedback_facebook_button">Open Facebook</string>
+
+    <!-- ════════════ Stop Details screen ════════════ -->
+    <string name="stop_save">Save stop</string>
+    <string name="stop_remove_saved">Remove from saved</string>
+    <string name="stop_saved_snack">Stop saved</string>
+    <string name="stop_removed_snack">Stop removed from saved</string>
+    <string name="stop_error_loading">Error loading arrivals</string>
+    <string name="stop_no_upcoming">No upcoming arrivals</string>
+    <string name="stop_routes_serving">Routes serving this stop</string>
+
+    <!-- ════════════ Reminder dialog (StopDetails / HomeMap) ════════════ -->
+    <string name="reminder_set_snack">Reminder set</string>
+    <string name="reminder_set_title">Set reminder</string>
+    <string name="reminder_cancel">Cancel reminder</string>
+    <string name="reminder_too_soon">Bus arrives too soon to set a reminder.</string>
+    <string name="reminder_notify_before">Notify me before arrival</string>
+    <!-- %d = minutes -->
+    <string name="reminder_minutes_before">%d minutes before arrival</string>
+    <!-- %s = time string -->
+    <string name="reminder_at_time">at %s</string>
+    <!-- %d = minutes short display -->
+    <string name="reminder_min_short">%d min</string>
+    <string name="reminder_set_cd">Reminder set</string>
+
+    <!-- ════════════ Arrival status ════════════ -->
+    <string name="status_on_time">On Time</string>
+    <string name="status_delayed">Delayed</string>
+    <string name="status_early">Early</string>
+    <string name="status_just_now">Just now</string>
+    <string name="status_ago">ago</string>
+    <string name="status_scheduled">Scheduled</string>
+    <string name="status_already_departed">Already departed</string>
+    <string name="status_now">NOW</string>
+    <string name="arrival_until"> until %s</string>
+    <string name="arrival_min_label">MIN</string>
+    <string name="arrival_not_realtime">not real-time</string>
+    <!-- %d = minutes -->
+    <string name="arrival_min_late">+%d min late</string>
+    <!-- %d = minutes -->
+    <string name="arrival_min_early">%d min early</string>
+    <string name="arrival_on_time_note">arriving on time</string>
+    <!-- %s = scheduled time string -->
+    <string name="arrival_sched">Sched %s</string>
+    <!-- %d = headway minutes -->
+    <string name="arrival_every_headway">Every ~%d min</string>
+    <string name="arrival_frequency_service">Frequency service</string>
+    <!-- Headway status labels: %1$d = headway mins, %2$s = " until HH:mm" or "" -->
+    <string name="status_headway_every">Every ~%1$d min%2$s</string>
+    <string name="status_headway_on_time">On Time · ~%1$d min%2$s</string>
+    <string name="status_headway_delayed">Delayed · ~%1$d min%2$s</string>
+    <string name="status_headway_early">Early · ~%1$d min%2$s</string>
+
+    <!-- ════════════ Route Details screen ════════════ -->
+    <string name="route_live_chip">LIVE</string>
+    <string name="route_sched_chip">SCHED</string>
+    <string name="route_saved_snack">Route saved</string>
+    <string name="route_removed_snack">Removed from saved routes</string>
+    <string name="route_save">Save route</string>
+    <string name="route_remove_saved">Remove saved</string>
+    <string name="route_jump_to_bus_cd">Jump to bus position</string>
+    <!-- %1$d = current stop index, %2$d = total stops -->
+    <string name="route_stop_count">Stop %1$d/%2$d</string>
+    <string name="route_loading_trip">Loading trip\u2026</string>
+    <string name="route_error_generic">Error</string>
+    <string name="route_no_trip">No trip selected</string>
+    <string name="route_no_trip_hint">Tap an arrival from the stop screen to see live bus position and stop sequence.</string>
+    <string name="route_here_badge">HERE</string>
+    <string name="route_next_badge">NEXT</string>
+    <string name="route_your_stop_badge">Your stop</string>
+    <!-- %s = scheduled time -->
+    <string name="route_sched_prefix">sched %s</string>
+    <string name="route_deviation_on_time">On time</string>
+    <!-- %d = minutes -->
+    <string name="route_deviation_late">+%d min late</string>
+    <!-- %d = minutes -->
+    <string name="route_deviation_early">%d min early</string>
+    <string name="route_no_services">No services in the next 6 hours</string>
+    <string name="route_no_upcoming">No upcoming services</string>
+    <string name="route_no_live_vehicles">No live vehicles are currently being tracked for this stop. Showing scheduled departures.</string>
+    <plurals name="route_stops_left">
+        <item quantity="one">%d left</item>
+        <item quantity="other">%d left</item>
+    </plurals>
+
+    <!-- ════════════ Home Map screen ════════════ -->
+    <string name="map_nearby_stops">NEARBY STOPS</string>
+    <string name="map_section_routes">ROUTES</string>
+    <string name="map_section_destinations">DESTINATIONS</string>
+    <string name="map_tap_to_see_arrivals">Tap any bus stop on the map to see live arrivals</string>
+    <string name="map_location_permission_required">Location permission required</string>
+    <string name="action_settings">Settings</string>
+    <string name="map_arrivals">Arrivals</string>
+    <string name="map_just_updated">Just updated</string>
+    <!-- %d = seconds -->
+    <string name="map_updated_s">Updated %ds ago</string>
+    <!-- %d = minutes -->
+    <string name="map_updated_m">Updated %d min ago</string>
+    <!-- %1$d = minutes, %2$d = seconds -->
+    <string name="map_updated_ms">Updated %1$d min %2$ds ago</string>
+    <string name="map_timetable_mode">Timetable mode</string>
+    <!-- %d = live count -->
+    <string name="map_live_count">%d live</string>
+    <!-- %d = scheduled count -->
+    <string name="map_scheduled_count">%d scheduled</string>
+    <!-- %1$s = routeShort, %2$s = routeLong -->
+    <string name="map_route_label_full">Route %1$s \u00b7 %2$s</string>
+    <!-- %s = routeShort -->
+    <string name="map_route_label_short">Route %s</string>
+    <plurals name="map_live_services">
+        <item quantity="one">%d live service</item>
+        <item quantity="other">%d live services</item>
+    </plurals>
+    <string name="map_where_to">Where to?</string>
+    <string name="map_listening">Listening\u2026</string>
+    <string name="map_plan_full_trip">Plan full trip</string>
+    <string name="map_plan_full_trip_subtitle">Set origin, destination &amp; time</string>
+    <!-- %s = search query -->
+    <string name="map_no_results">No results for \"%s\"</string>
+    <string name="map_voice_search_cd">Voice search</string>
+    <string name="map_close_search_cd">Close search</string>
+    <string name="map_my_location_cd">My Location</string>
+    <string name="map_open_stop_details_cd">Open stop details</string>
+    <string name="map_show_more">Show %d more</string>
+    <string name="map_all_arrivals_shown">%d arrivals shown</string>
+    <string name="map_stop_info">Stop info</string>
+    <string name="map_centre_on_stop_cd">Centre map on stop</string>
+    <string name="map_minimize_cd">Minimise</string>
+    <string name="map_view_route_details_cd">View route details</string>
+    <string name="map_clear_route_filter_cd">Clear route filter</string>
+    <string name="map_notifications_cd">Notifications</string>
+    <string name="map_cancel_reminder">Cancel reminder</string>
+    <string name="map_region_suggestion">Looks like you\'re in %s — switch?</string>
+    <string name="map_region_suggestion_switch">Switch</string>
+
+    <!-- ════════════ Trip Planner screen ════════════ -->
+    <string name="plan_title">Plan Trip</string>
+    <string name="plan_subtitle">Find bus, rail &amp; transit routes</string>
+    <string name="plan_from_label">From</string>
+    <string name="plan_from_hint">Enter origin</string>
+    <string name="plan_to_label">To</string>
+    <string name="plan_to_hint">Enter destination</string>
+    <string name="plan_when_section">WHEN</string>
+    <string name="plan_depart_now">Depart Now</string>
+    <string name="plan_depart_at_short">Depart At</string>
+    <string name="plan_arrive_by_short">Arrive By</string>
+    <!-- %1$s = time, %2$s = date label -->
+    <string name="plan_arrive_by">Arrive by %1$s, %2$s</string>
+    <!-- %1$s = time, %2$s = date label -->
+    <string name="plan_depart_at">Depart at %1$s, %2$s</string>
+    <string name="plan_today">Today</string>
+    <string name="plan_now">Now</string>
+    <string name="plan_tomorrow">Tomorrow</string>
+    <string name="plan_find_routes">Find Routes</string>
+    <string name="plan_section_mode">MODE</string>
+    <string name="plan_route_options">Route Options</string>
+    <string name="plan_routes_found">%d found</string>
+    <string name="plan_departure_options_title">Departure Options</string>
+    <string name="plan_departure_options_subtitle">Choose your travel time</string>
+    <string name="plan_mode_all">All</string>
+    <string name="plan_mode_bus">Bus</string>
+    <string name="plan_mode_lrt">LRT</string>
+    <string name="plan_mode_mrt">MRT</string>
+    <string name="plan_mode_rail">Commuter</string>
+    <string name="plan_mode_monorail">Monorail</string>
+    <string name="plan_mode_ferry">Ferry</string>
+    <string name="plan_mode_walk">Walk</string>
+    <string name="plan_walk_min">%d min walk</string>
+    <string name="plan_walk_only">Walk only</string>
+    <string name="plan_direct">Direct</string>
+    <plurals name="plan_transfers">
+        <item quantity="one">%d transfer</item>
+        <item quantity="other">%d transfers</item>
+    </plurals>
+    <plurals name="map_stop_route_count">
+        <item quantity="one">%d route</item>
+        <item quantity="other">%d routes</item>
+    </plurals>
+    <string name="plan_finding_routes">Finding Routes\u2026</string>
+    <string name="plan_confirm">Confirm</string>
+    <string name="plan_no_route">No route found</string>
+    <string name="plan_my_location">My Location</string>
+    <string name="plan_my_location_cd">My location</string>
+    <!-- Quick-fill saved places -->
+    <string name="plan_home">Home</string>
+    <string name="plan_work">Work</string>
+    <string name="plan_set_home">Set Home</string>
+    <string name="plan_set_work">Set Work</string>
+    <string name="plan_home_cd">Use home address</string>
+    <string name="plan_work_cd">Use work address</string>
+    <string name="plan_saved_places_section">SAVED PLACES</string>
+    <string name="plan_set_home_title">Set Home Address</string>
+    <string name="plan_set_work_title">Set Work Address</string>
+    <string name="plan_saved_place_hint">Search for a place…</string>
+    <string name="plan_saved_place_save">Save</string>
+    <string name="plan_saved_place_remove">Delete</string>
+    <string name="plan_home_long_press">Long press to edit home</string>
+    <string name="plan_work_long_press">Long press to edit work</string>
+    <!-- Settings - Saved Places -->
+    <string name="settings_section_saved_places">SAVED PLACES</string>
+    <string name="settings_home_label">Home</string>
+    <string name="settings_work_label">Work</string>
+    <string name="settings_saved_place_not_set">Not set — tap to add</string>
+    <string name="settings_saved_place_change">Change</string>
+    <string name="settings_saved_place_clear">Delete</string>
+    <string name="time_am">AM</string>
+    <string name="time_pm">PM</string>
+    <string name="plan_swap_cd">Swap</string>
+
+    <!-- ════════════ Trip Itinerary screen ════════════ -->
+    <string name="itinerary_title">Trip Itinerary</string>
+    <!-- %s = arrival time -->
+    <string name="itinerary_arrive_by">Arrive by %s</string>
+    <string name="itinerary_board_here">Board here</string>
+    <string name="itinerary_origin">Origin</string>
+    <string name="itinerary_destination">Destination</string>
+    <string name="itinerary_current_location">Current location</string>
+    <string name="itinerary_alight_here">Alight here</string>
+    <string name="itinerary_walk">Walk</string>
+    <!-- %s = formatted distance -->
+    <string name="itinerary_walk_label">Walk %s</string>
+    <!-- %d = minutes -->
+    <string name="itinerary_min">%d min</string>
+    <!-- %s = transit mode label -->
+    <string name="itinerary_board_transit">Board · %s</string>
+    <!-- %s = headsign -->
+    <string name="itinerary_towards">towards %s</string>
+    <!-- %1$d = mins, %2$d = stops, %3$s = alight stop name -->
+    <string name="itinerary_leg_summary">%1$d min · %2$d stops · Alight at %3$s</string>
+    <!-- %1$d = mins, %2$s = destination name -->
+    <string name="itinerary_walk_summary">%1$d min · towards %2$s</string>
+    <string name="itinerary_next_stop">next stop</string>
+    <!-- %s = arrival time -->
+    <string name="itinerary_arrive">Arrive %s</string>
+    <!-- %1$d = mins, %2$s = arrival time -->
+    <string name="itinerary_duration_arrive">%1$d min · Arrive %2$s</string>
+    <string name="itinerary_go_back">Go Back</string>
+    <string name="itinerary_dest_alert">Destination Alert</string>
+    <string name="itinerary_stop_alert">Stop Alert</string>
+    <string name="itinerary_unavailable_title">Trip details unavailable</string>
+    <string name="itinerary_unavailable_body">Go back and select a route option</string>
+    <string name="itinerary_location_permission_title">Location Permission Required</string>
+    <string name="itinerary_location_permission_body">Destination alerts need your GPS location to detect when you are approaching your stop. Please grant location permission in Settings.</string>
+
+    <!-- ════════════ Destination Alert Service ════════════ -->
+    <string name="dest_alert_channel_title">Active Destination Alert</string>
+    <!-- %s = destination name -->
+    <string name="dest_alert_monitoring">Monitoring route to %s\u2026</string>
+    <!-- %1$s = distance label, %2$s = destination name -->
+    <string name="dest_alert_distance">%1$s to %2$s</string>
+    <string name="dest_alert_get_ready_tts">Get ready. Your stop is coming up soon.</string>
+    <string name="dest_alert_arrived_tts">Your stop has arrived. Please exit the vehicle now.</string>
+    <string name="dest_alert_arrival_title">Get off the bus!</string>
+    <!-- %s = destination name -->
+    <string name="dest_alert_arrival_body">Your stop \"%s\" has arrived.</string>
+    <string name="dest_alert_stop_action">Stop</string>
+    <string name="dest_alert_stop_alerts_action">Stop Alerts</string>
+    <string name="dest_alert_default_destination">Destination</string>
+
+    <!-- ════════════ Notification channels ════════════ -->
+    <string name="channel_reminders_name">Reminders</string>
+    <string name="channel_reminders_description">Bus departure reminders</string>
+    <string name="channel_destination_name">Destination Alerts</string>
+    <string name="channel_destination_description">Live destination monitoring while on the bus</string>
+
+    <!-- ════════════ ViewModel messages ════════════ -->
+    <string name="error_location">Could not get your location. Try again.</string>
+    <string name="error_location_fallback">Could not get your location; showing Kuala Lumpur</string>
+    <!-- %s = region name -->
+    <string name="message_now_in_region">You are now in %s</string>
+    <!-- %s = region name -->
+    <string name="message_outside_service_area">You are outside the service area; showing %s</string>
+    <!-- %s = region name -->
+    <string name="message_showing_region">Showing %s</string>
+    <string name="error_reminder_service_unavailable">Reminder service is unavailable for this region.</string>
+    <!-- %s = exception message -->
+    <string name="error_reminder">Could not set reminder: %s</string>
+    <!-- %d = minutes before -->
+    <string name="reminder_notified_before">You will be notified %d min before the bus arrives.</string>
+    <string name="reminder_cancelled">Reminder cancelled.</string>
+    <string name="error_trip_unavailable">Trip details are unavailable.</string>
+    <string name="error_no_transit_server">No transit server found for this area.</string>
+
+    <!-- ════════════ Vehicle marker ════════════ -->
+    <!-- %d = elapsed seconds -->
+    <string name="vehicle_elapsed_s">%ds ago</string>
+    <!-- %1$d = minutes, %2$d = seconds -->
+    <string name="vehicle_elapsed_ms">%1$dm %2$ds ago</string>
 </resources>

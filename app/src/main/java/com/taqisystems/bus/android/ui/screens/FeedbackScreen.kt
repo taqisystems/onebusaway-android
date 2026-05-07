@@ -3,6 +3,9 @@
 
 package com.taqisystems.bus.android.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.taqisystems.bus.android.R
+
 import com.taqisystems.bus.android.BuildConfig
 import android.content.Intent
 import android.net.Uri
@@ -77,7 +80,7 @@ fun FeedbackScreen(navController: NavController) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Feedback") },
+                title = { Text(stringResource(R.string.feedback_title)) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -99,14 +102,14 @@ fun FeedbackScreen(navController: NavController) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                "We'd love to hear from you",
+                stringResource(R.string.feedback_headline),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Report a problem, suggest a feature, or just say hello — choose your preferred channel below.",
+                stringResource(R.string.feedback_body),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -119,9 +122,9 @@ fun FeedbackScreen(navController: NavController) {
             ContactCard(
                 icon = Icons.Default.Chat,
                 iconTint = WHATSAPP_GREEN,
-                title = "WhatsApp",
-                subtitle = "Chat with us directly on WhatsApp Business",
-                buttonLabel = "Open WhatsApp",
+                title = stringResource(R.string.feedback_whatsapp_title),
+                subtitle = stringResource(R.string.feedback_whatsapp_subtitle),
+                buttonLabel = stringResource(R.string.feedback_whatsapp_button),
                 buttonColor = WHATSAPP_GREEN,
                 onClick = ::openWhatsApp,
             )
@@ -134,7 +137,7 @@ fun FeedbackScreen(navController: NavController) {
             ) {
                 HorizontalDivider(modifier = Modifier.weight(1f))
                 Text(
-                    "  or  ",
+                    stringResource(R.string.feedback_or),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -147,9 +150,9 @@ fun FeedbackScreen(navController: NavController) {
             ContactCard(
                 icon = Icons.Default.Pages,
                 iconTint = FACEBOOK_BLUE,
-                title = "Facebook Page",
-                subtitle = "Message us on the official ${BuildConfig.APP_NAME} Facebook page",
-                buttonLabel = "Open Facebook",
+                title = stringResource(R.string.feedback_facebook_title),
+                subtitle = stringResource(R.string.feedback_facebook_subtitle),
+                buttonLabel = stringResource(R.string.feedback_facebook_button),
                 buttonColor = FACEBOOK_BLUE,
                 onClick = ::openFacebook,
             )

@@ -3,7 +3,9 @@
 
 package com.taqisystems.bus.android.ui.screens
 
-import com.taqisystems.bus.android.BuildConfig
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -11,10 +13,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.*
@@ -23,8 +27,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -52,7 +54,20 @@ fun NotificationsScreen(navController: NavController) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Notifications", fontWeight = FontWeight.SemiBold) },
+                title = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(stringResource(R.string.notifications_title), fontWeight = FontWeight.Bold)
+                        val subtitle = if (notifications.isEmpty())
+                            stringResource(R.string.notifications_empty)
+                        else
+                            pluralStringResource(R.plurals.notifications_count, notifications.size, notifications.size)
+                        Text(
+                            subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f),
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onPrimary)
@@ -66,7 +81,7 @@ fun NotificationsScreen(navController: NavController) {
                         }) {
                             Icon(
                                 Icons.Default.DeleteSweep,
-                                contentDescription = "Clear all",
+                                contentDescription = stringResource(R.string.action_clear_all),
                                 tint = MaterialTheme.colorScheme.onPrimary,
                             )
                         }
@@ -94,13 +109,13 @@ fun NotificationsScreen(navController: NavController) {
                     )
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        "No notifications yet",
+                        stringResource(R.string.notifications_empty),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "You'll see updates from ${BuildConfig.APP_NAME} here.",
+                        stringResource(R.string.notifications_empty_subtitle),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     )
@@ -159,13 +174,13 @@ private fun SwipeToDeleteRow(onDelete: () -> Unit, content: @Composable () -> Un
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
                         Icons.Default.Delete,
-                        contentDescription = "Delete",
+                        contentDescription = stringResource(R.string.notifications_delete),
                         tint = MaterialTheme.colorScheme.onErrorContainer,
                         modifier = Modifier.size(22.dp),
                     )
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        "Delete",
+                        stringResource(R.string.notifications_delete),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         fontSize = 10.sp,
@@ -194,28 +209,34 @@ private fun NotificationRow(notification: InboxNotification, onClick: () -> Unit
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        // Avatar + unread dot overlay
+        // Icon tile + unread dot overlay
         Box(modifier = Modifier.size(44.dp)) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        if (!notification.isRead)
+                            MaterialTheme.colorScheme.primaryContainer
+                        else
+                            MaterialTheme.colorScheme.surfaceVariant
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
-                androidx.compose.foundation.Image(
-                    painter = painterResource(R.drawable.logo),
-                    contentDescription = BuildConfig.APP_NAME,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape),
+                Icon(
+                    if (!notification.isRead) Icons.Default.Notifications else Icons.Default.NotificationsNone,
+                    contentDescription = null,
+                    tint = if (!notification.isRead)
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(22.dp),
                 )
             }
             if (!notification.isRead) {
                 Box(
                     modifier = Modifier
-                        .size(11.dp)
+                        .size(10.dp)
                         .clip(CircleShape)
                         .background(Primary)
                         .align(Alignment.TopEnd),
@@ -258,7 +279,7 @@ private fun NotificationRow(notification: InboxNotification, onClick: () -> Unit
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(12.dp), tint = Primary)
                     Spacer(Modifier.width(4.dp))
-                    Text("Tap to view", style = MaterialTheme.typography.labelSmall, color = Primary, fontSize = 11.sp)
+                    Text(stringResource(R.string.notifications_tap_to_view), style = MaterialTheme.typography.labelSmall, color = Primary, fontSize = 11.sp)
                 }
             }
         }

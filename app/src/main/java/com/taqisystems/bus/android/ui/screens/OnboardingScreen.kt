@@ -3,8 +3,10 @@
 
 package com.taqisystems.bus.android.ui.screens
 
+import androidx.annotation.StringRes
 import com.taqisystems.bus.android.BuildConfig
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -59,47 +61,47 @@ import kotlinx.coroutines.launch
 
 private data class OnboardingPage(
     val icon: ImageVector,
-    val navLabel: String,           // the bottom-nav label this page corresponds to (null = welcome)
-    val title: String,
-    val body: String,
+    @StringRes val navLabelId: Int,  // 0 = welcome page (no nav label)
+    @StringRes val titleId: Int,
+    @StringRes val bodyId: Int,
 )
 
 private val pages = listOf(
     OnboardingPage(
         icon = Icons.Default.DirectionsBus,
-        navLabel = "",
-        title = "Welcome to ${BuildConfig.APP_NAME}",
-        body = "Your real-time transit companion for Malaysia. Get live arrivals, plan trips, and explore the network.",
+        navLabelId = 0,
+        titleId = R.string.onboarding_welcome_title,
+        bodyId = R.string.onboarding_welcome_body,
     ),
     OnboardingPage(
         icon = Icons.Filled.Map,
-        navLabel = "Map",
-        title = "Live Bus Arrivals",
-        body = "Tap any stop on the map to see real-time arrivals with live status — on time, delayed, or early.",
+        navLabelId = R.string.nav_map,
+        titleId = R.string.onboarding_map_title,
+        bodyId = R.string.onboarding_map_body,
     ),
     OnboardingPage(
         icon = Icons.Filled.DirectionsTransit,
-        navLabel = "Plan",
-        title = "Plan Your Journey",
-        body = "Get step-by-step transit directions from your location to anywhere in the network.",
+        navLabelId = R.string.nav_plan,
+        titleId = R.string.onboarding_plan_title,
+        bodyId = R.string.onboarding_plan_body,
     ),
     OnboardingPage(
         icon = Icons.Filled.Bookmark,
-        navLabel = "Saved",
-        title = "Save Your Favourites",
-        body = "Bookmark stops and routes for one-tap access. Your saved items are always ready when you need them.",
+        navLabelId = R.string.nav_saved,
+        titleId = R.string.onboarding_saved_title,
+        bodyId = R.string.onboarding_saved_body,
     ),
     OnboardingPage(
         icon = Icons.Filled.NotificationsActive,
-        navLabel = "Reminders",
-        title = "Never Miss Your Bus",
-        body = "Set arrival reminders on any bus — get notified before it reaches your stop so you're always on time.",
+        navLabelId = R.string.nav_reminders,
+        titleId = R.string.onboarding_reminder_title,
+        bodyId = R.string.onboarding_reminder_body,
     ),
     OnboardingPage(
         icon = Icons.Filled.MoreHoriz,
-        navLabel = "More",
-        title = "More at Your Fingertips",
-        body = "Access your notifications, active reminders, settings, and app info all from the More tab.",
+        navLabelId = R.string.nav_more,
+        titleId = R.string.onboarding_more_title,
+        bodyId = R.string.onboarding_more_body,
     ),
 )
 
@@ -186,7 +188,7 @@ fun OnboardingScreen(onFinished: () -> Unit) {
                     if (pagerState.currentPage < pages.lastIndex) {
                         TextButton(onClick = ::skip) {
                             Text(
-                                "Skip",
+                                stringResource(R.string.onboarding_skip),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodyLarge,
                             )
@@ -202,7 +204,7 @@ fun OnboardingScreen(onFinished: () -> Unit) {
                         modifier = Modifier.height(48.dp),
                     ) {
                         Text(
-                            text = if (pagerState.currentPage == pages.lastIndex) "Get Started" else "Next",
+                            text = if (pagerState.currentPage == pages.lastIndex) stringResource(R.string.onboarding_get_started) else stringResource(R.string.onboarding_next),
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 16.sp,
                             modifier = Modifier.padding(horizontal = 16.dp),
@@ -223,7 +225,8 @@ private fun OnboardingPage(page: OnboardingPage) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        if (page.navLabel.isEmpty()) {
+        val navLabel = if (page.navLabelId != 0) stringResource(page.navLabelId) else ""
+        if (navLabel.isEmpty()) {
             // Welcome page — logo inside the same circle shape as icon pages
             Box(
                 modifier = Modifier
@@ -258,14 +261,14 @@ private fun OnboardingPage(page: OnboardingPage) {
         }
 
         // Nav-tab label chip — shown for pages that correspond to a bottom nav tab
-        if (page.navLabel.isNotEmpty()) {
+        if (navLabel.isNotEmpty()) {
             Spacer(Modifier.height(16.dp))
             Surface(
                 shape = RoundedCornerShape(50),
                 color = PrimaryContainer,
             ) {
                 Text(
-                    text = page.navLabel,
+                    text = navLabel,
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
@@ -277,7 +280,7 @@ private fun OnboardingPage(page: OnboardingPage) {
         Spacer(Modifier.height(32.dp))
 
         Text(
-            text = page.title,
+            text = stringResource(page.titleId),
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,
@@ -287,7 +290,7 @@ private fun OnboardingPage(page: OnboardingPage) {
         Spacer(Modifier.height(16.dp))
 
         Text(
-            text = page.body,
+            text = stringResource(page.bodyId),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,

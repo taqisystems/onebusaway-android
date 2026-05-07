@@ -24,6 +24,7 @@ import com.taqisystems.bus.android.data.model.PlaceResult
 import com.taqisystems.bus.android.data.model.RoutePoint
 import com.taqisystems.bus.android.data.model.OverviewRoute
 import com.taqisystems.bus.android.data.model.outerBoundingBox
+import com.taqisystems.bus.android.ui.util.UiText
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.async
@@ -44,6 +45,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import org.json.JSONObject
 import java.io.File
+import com.taqisystems.bus.android.R
 
 /** Unified search result shown in the "Where to?" results panel. */
 sealed class HomeSearchResult {
@@ -69,7 +71,7 @@ data class HomeUiState(
     val selectedArrivalStatus: ArrivalStatus? = null,
     val activeRegion: ObaRegion? = null,
     val loading: Boolean = false,
-    val error: String? = null,
+    val error: UiText? = null,
     // Unified "Where to?" search
     val searchQuery: String = "",
     val searchActive: Boolean = false,
@@ -93,10 +95,10 @@ data class HomeUiState(
     // One-shot: set when deep-linking from Reminders so the camera flies to the stop
     val cameraFocusStop: ObaStop? = null,
     // One-shot message shown when the user switches regions in Settings
-    val regionSwitchMessage: String? = null,
+    val regionSwitchMessage: UiText? = null,
     // Location fetch state
     val isLocatingUser: Boolean = false,
-    val locationError: String? = null,
+    val locationError: UiText? = null,
     // Last known map camera position — persisted across bottom-tab navigation
     val lastCameraLat: Double = 0.0,
     val lastCameraLon: Double = 0.0,
@@ -112,11 +114,13 @@ data class HomeUiState(
     /** Which arrival the reminder bottom sheet is currently open for. */
     val reminderSheetArrival: ObaArrival? = null,
     /** Feedback message to show in a snackbar. */
-    val reminderMessage: String? = null,
+    val reminderMessage: UiText? = null,
     /** True while a reminder HTTP call is in flight. */
     val reminderLoading: Boolean = false,
     /** Holds the last cancelled reminder so Undo can restore it. */
     val lastCancelledReminder: ActiveReminder? = null,
+    /** Detected region that differs from the current active one — shown as a "Switch?" banner. */
+    val suggestedRegion: ObaRegion? = null,
 )
 
 class HomeViewModel(app: Application) : AndroidViewModel(app) {
@@ -240,7 +244,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                         _uiState.value = _uiState.value.copy(
                             pendingCameraCenter = Pair(lat, lon),
                             activeRegion = resolvedRegion,
-                            regionSwitchMessage = resolvedRegion?.regionName?.let { "You're now in $it" },
+                            regionSwitchMessage = resolvedRegion?.regionName?.let { UiText.Resource(R.string.message_now_in_region, listOf(it)) },
                         )
                         prefs.setSidecarBaseUrl(resolvedRegion?.sidecarBaseUrl)
                         loadOverviewRoutes()
@@ -272,6 +276,30 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         _uiState.value = _uiState.value.copy(regionSwitchMessage = null)
     }
 
+    fun dismissRegionSuggestion() {
+        _uiState.value = _uiState.value.copy(suggestedRegion = null)
+    }
+
+    fun acceptRegionSuggestion() {
+        val region = _uiState.value.suggestedRegion ?: return
+        viewModelScope.launch {
+            val prefs = ServiceLocator.preferences
+            ServiceLocator.applyRegionUrls(region.obaBaseUrl)
+            prefs.setRegion(
+                id = region.id.toString(),
+                obaUrl = region.obaBaseUrl,
+                otpUrl = region.otpBaseUrl,
+                sidecarUrl = region.sidecarBaseUrl,
+            )
+            prefs.setRegionCenter(region.centerLat, region.centerLon)
+            _uiState.value = _uiState.value.copy(
+                suggestedRegion = null,
+                activeRegion = region,
+                regionSwitchMessage = UiText.Resource(R.string.message_now_in_region, listOf(region.regionName)),
+            )
+        }
+    }
+
     @SuppressLint("MissingPermission")
     fun fetchUserLocation(recenterCamera: Boolean = false) {
         if (recenterCamera) {
@@ -294,16 +322,16 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 } else {
                     _uiState.value = _uiState.value.copy(
                         isLocatingUser = false,
-                        locationError = "Couldn't get your location. Try again.",
+                        locationError = UiText.Resource(R.string.error_location),
                     )
-                    loadFallbackRegion("Couldn't get your location; showing Kuala Lumpur")
+                    loadFallbackRegion(UiText.Resource(R.string.error_location_fallback))
                 }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLocatingUser = false,
-                    locationError = "Couldn't get your location. Try again.",
+                    locationError = UiText.Resource(R.string.error_location),
                 )
-                loadFallbackRegion("Couldn't get your location; showing Kuala Lumpur")
+                loadFallbackRegion(UiText.Resource(R.string.error_location_fallback))
             }
         }
     }
@@ -317,6 +345,16 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             val regions = runCatching { regionsRepo.fetchRegions() }.getOrElse { emptyList() }
             val detectedRegion = regionsRepo.findRegionForLocation(regions, lat, lon)
             val prefs = ServiceLocator.preferences
+            val autoDetect = prefs.autoDetectRegion.first()
+            // When user manually chose a region but is physically in a different one, suggest switching
+            if (!autoDetect && detectedRegion != null) {
+                val currentActiveRegion = _uiState.value.activeRegion
+                if (currentActiveRegion == null || detectedRegion.id != currentActiveRegion.id) {
+                    _uiState.value = _uiState.value.copy(suggestedRegion = detectedRegion)
+                    loadStopsForLocation(lat, lon)
+                    return@launch
+                }
+            }
             val savedRegionId = prefs.regionId.first()?.toIntOrNull()
             val fallbackRegion = preferredFallbackRegion(regions)
                 ?: regions.firstOrNull { it.id == savedRegionId }
@@ -324,14 +362,14 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 ?: regions.firstOrNull()
             val region = detectedRegion ?: fallbackRegion
             val previousRegion = _uiState.value.activeRegion
-            val switchedMessage = if (
+            val switchedMessage: UiText? = if (
                 detectedRegion == null &&
                 region != null
-            ) "You're outside the service area; showing ${region.regionName}" else if (
+            ) UiText.Resource(R.string.message_outside_service_area, listOf(region.regionName)) else if (
                 region != null &&
                 previousRegion != null &&
                 region.id != previousRegion.id
-            ) "You're now in ${region.regionName}" else null
+            ) UiText.Resource(R.string.message_now_in_region, listOf(region.regionName)) else null
             val targetLat = if (detectedRegion != null) lat else region?.centerLat ?: lat
             val targetLon = if (detectedRegion != null) lon else region?.centerLon ?: lon
             _uiState.value = _uiState.value.copy(
@@ -359,7 +397,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun loadFallbackRegion(message: String? = null) {
+    private fun loadFallbackRegion(message: UiText? = null) {
         viewModelScope.launch {
             val regions = runCatching { regionsRepo.fetchRegions() }.getOrElse { emptyList() }
             val region = preferredFallbackRegion(regions) ?: regions.firstOrNull()
@@ -371,7 +409,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             val targetLon = region.centerLon.takeIf { it != 0.0 } ?: KUALA_LUMPUR_LON
             _uiState.value = _uiState.value.copy(
                 activeRegion = region,
-                regionSwitchMessage = message ?: "Showing ${region.regionName}",
+                regionSwitchMessage = message ?: UiText.Resource(R.string.message_showing_region, listOf(region.regionName)),
                 pendingCameraCenter = Pair(targetLat, targetLon),
                 isLocatingUser = false,
             )
@@ -410,7 +448,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(loading = true, error = null)
             val stops = runCatching { obaRepo.getStopsForLocation(lat, lon, radius) }
-                .getOrElse { _uiState.value = _uiState.value.copy(error = it.message); emptyList() }
+                .getOrElse { _uiState.value = _uiState.value.copy(error = UiText.Raw(it.message ?: "")); emptyList() }
             _uiState.value = _uiState.value.copy(stops = stops, loading = false)
         }
     }
@@ -814,7 +852,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             if (sidecarUrl.isNullOrBlank() || regionId == null || stop == null) {
                 _uiState.value = _uiState.value.copy(
                     reminderSheetArrival = null,
-                    reminderMessage = "Reminder service is not available for this region.",
+                    reminderMessage = UiText.Resource(R.string.error_reminder_service_unavailable),
                 )
                 return@launch
             }
@@ -850,12 +888,12 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 prefs.addActiveReminder(reminder)
                 _uiState.value = _uiState.value.copy(
                     reminderLoading = false,
-                    reminderMessage = "You'll be notified $minutesBefore min before the bus arrives.",
+                    reminderMessage = UiText.Resource(R.string.reminder_notified_before, listOf(minutesBefore)),
                 )
             }.onFailure { e ->
                 _uiState.value = _uiState.value.copy(
                     reminderLoading = false,
-                    reminderMessage = "Couldn't set reminder: ${e.message}",
+                    reminderMessage = UiText.Resource(R.string.error_reminder, listOf(e.message ?: "")),
                 )
             }
         }
@@ -868,7 +906,7 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             ServiceLocator.preferences.removeActiveReminder(arrival.tripId)
             _uiState.value = _uiState.value.copy(
                 reminderSheetArrival = null,
-                reminderMessage = "Reminder cancelled.",
+                reminderMessage = UiText.Resource(R.string.reminder_cancelled),
                 lastCancelledReminder = reminder,
             )
             reminderRepo.cancelReminder(reminder)

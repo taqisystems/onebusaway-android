@@ -3,6 +3,9 @@
 
 package com.taqisystems.bus.android.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.taqisystems.bus.android.R
+
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -80,14 +83,15 @@ private fun legIcon(mode: String) = when (mode.uppercase()) {
 }
 
 /** Short human-readable label for a given OTP [mode] string. */
+@Composable
 private fun legModeLabel(mode: String): String = when (mode.uppercase()) {
-    "BUS"      -> "Bus"
-    "TRAM"     -> "LRT"
-    "RAIL"     -> "Commuter Rail"
-    "SUBWAY"   -> "MRT"
-    "FERRY"    -> "Ferry"
-    "MONORAIL" -> "Monorail"
-    "WALK"     -> "Walk"
+    "BUS"      -> stringResource(R.string.plan_mode_bus)
+    "TRAM"     -> stringResource(R.string.plan_mode_lrt)
+    "RAIL"     -> stringResource(R.string.plan_mode_rail)
+    "SUBWAY"   -> stringResource(R.string.plan_mode_mrt)
+    "FERRY"    -> stringResource(R.string.plan_mode_ferry)
+    "MONORAIL" -> stringResource(R.string.plan_mode_monorail)
+    "WALK"     -> stringResource(R.string.plan_mode_walk)
     else       -> mode
 }
 
@@ -138,9 +142,9 @@ fun TripItineraryScreen(navController: NavController) {
     if (showPermissionRationale) {
         AlertDialog(
             onDismissRequest = { showPermissionRationale = false },
-            title = { Text("Location Permission Required") },
-            text = { Text("Destination alerts need your GPS location to detect when you're approaching your stop. Please grant location permission in Settings.") },
-            confirmButton = { TextButton(onClick = { showPermissionRationale = false }) { Text("OK") } },
+            title = { Text(stringResource(R.string.itinerary_location_permission_title)) },
+            text = { Text(stringResource(R.string.itinerary_location_permission_body)) },
+            confirmButton = { TextButton(onClick = { showPermissionRationale = false }) { Text(stringResource(R.string.action_ok)) } },
         )
     }
 
@@ -154,7 +158,7 @@ fun TripItineraryScreen(navController: NavController) {
                         if (itinerary != null) {
                             val fmt = SimpleDateFormat("h:mm a", Locale.getDefault())
                             val dur = itinerary.duration / 60
-                            Text("${dur} min · Arrive ${fmt.format(Date(itinerary.endTime))}",
+                            Text(stringResource(R.string.itinerary_duration_arrive, dur, fmt.format(Date(itinerary.endTime))),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -181,7 +185,7 @@ fun TripItineraryScreen(navController: NavController) {
                         )
                     },
                     text = {
-                        Text(if (alertActive) "Stop Alert" else "Destination Alert")
+                        Text(if (alertActive) stringResource(R.string.itinerary_stop_alert) else stringResource(R.string.itinerary_dest_alert))
                     },
                     containerColor = if (alertActive) MaterialTheme.colorScheme.error
                                      else MaterialTheme.colorScheme.primary,
@@ -200,18 +204,18 @@ fun TripItineraryScreen(navController: NavController) {
                         tint = MaterialTheme.colorScheme.outlineVariant,
                     )
                     Text(
-                        "Trip details unavailable",
+                        stringResource(R.string.itinerary_unavailable_title),
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        "Go back and select a route option",
+                        stringResource(R.string.itinerary_unavailable_body),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
                     OutlinedButton(onClick = { navController.popBackStack() }) {
-                        Text("Go Back")
+                        Text(stringResource(R.string.itinerary_go_back))
                     }
                 }
             }
@@ -350,7 +354,7 @@ private fun ItineraryMap(itinerary: OtpItinerary) {
             itinerary.legs.firstOrNull()?.let { first ->
                 Marker(
                     state = MarkerState(LatLng(first.from.lat, first.from.lon)),
-                    title = first.from.name.ifBlank { "Origin" },
+                    title = first.from.name.ifBlank { stringResource(R.string.itinerary_origin) },
                     icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN),
                     zIndex = 5f,
                 )
@@ -358,7 +362,7 @@ private fun ItineraryMap(itinerary: OtpItinerary) {
             itinerary.legs.lastOrNull()?.let { last ->
                 Marker(
                     state = MarkerState(LatLng(last.to.lat, last.to.lon)),
-                    title = last.to.name.ifBlank { "Destination" },
+                    title = last.to.name.ifBlank { stringResource(R.string.itinerary_destination) },
                     icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED),
                     zIndex = 5f,
                 )
@@ -482,7 +486,7 @@ private fun LegItem(leg: OtpLeg) {
                     .background(lineColor.copy(alpha = 0.4f)))
             }
             Column(Modifier.weight(1f).padding(start = 10.dp, bottom = 12.dp)) {
-                Text(leg.from.name.ifBlank { "Current location" },
+                Text(leg.from.name.ifBlank { stringResource(R.string.itinerary_current_location) },
                     fontWeight = FontWeight.SemiBold,
                     style = MaterialTheme.typography.bodyMedium)
                 Text(startTime, style = MaterialTheme.typography.bodySmall,
@@ -499,7 +503,7 @@ private fun LegItem(leg: OtpLeg) {
                                 Icon(legIcon(leg.mode), null,
                                     tint = modeColor, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text("Board · ${legModeLabel(leg.mode)}", fontWeight = FontWeight.Bold,
+                                Text(stringResource(R.string.itinerary_board_transit, legModeLabel(leg.mode)), fontWeight = FontWeight.Bold,
                                     color = modeColor,
                                     style = MaterialTheme.typography.bodyMedium)
                                 Spacer(Modifier.width(6.dp))
@@ -515,7 +519,7 @@ private fun LegItem(leg: OtpLeg) {
                             }
                             if (!leg.headsign.isNullOrBlank()) {
                                 Spacer(Modifier.height(2.dp))
-                                Text("towards ${leg.headsign}",
+                                Text(stringResource(R.string.itinerary_towards, leg.headsign!!),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             } else if (!leg.routeLongName.isNullOrBlank()) {
@@ -525,7 +529,7 @@ private fun LegItem(leg: OtpLeg) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Spacer(Modifier.height(4.dp))
-                            Text("$durationMin min · ${leg.intermediateStops.size} stop(s) · Alight at ${leg.to.name}",
+                            Text(stringResource(R.string.itinerary_leg_summary, durationMin, leg.intermediateStops.size, leg.to.name),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (!leg.agencyName.isNullOrBlank()) {
@@ -550,9 +554,9 @@ private fun LegItem(leg: OtpLeg) {
                                 modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Column {
-                                Text("Walk $distLabel", fontWeight = FontWeight.Medium,
+                                Text(stringResource(R.string.itinerary_walk_label, distLabel), fontWeight = FontWeight.Medium,
                                     style = MaterialTheme.typography.bodyMedium)
-                                Text("$durationMin min · towards ${leg.to.name.ifBlank { "next stop" }}",
+                                Text(stringResource(R.string.itinerary_walk_summary, durationMin, leg.to.name.ifBlank { stringResource(R.string.itinerary_next_stop) }),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -580,10 +584,10 @@ private fun DestinationNode(lastLeg: OtpLeg) {
             }
         }
         Column(Modifier.padding(start = 10.dp)) {
-            Text(lastLeg.to.name.ifBlank { "Destination" },
+            Text(lastLeg.to.name.ifBlank { stringResource(R.string.itinerary_destination) },
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.bodyMedium)
-            Text("Arrive ${fmt.format(Date(lastLeg.endTime))}",
+            Text(stringResource(R.string.itinerary_arrive, fmt.format(Date(lastLeg.endTime))),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

@@ -3,6 +3,9 @@
 
 package com.taqisystems.bus.android.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.taqisystems.bus.android.R
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -46,10 +49,10 @@ fun RemindersScreen(navController: NavController) {
             TopAppBar(
                 title = {
                     Column {
-                        Text("Reminders", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.reminders_title), fontWeight = FontWeight.Bold)
                         if (reminders.isNotEmpty()) {
                             Text(
-                                "${reminders.size} active",
+                                stringResource(R.string.reminders_active, reminders.size),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.White.copy(alpha = 0.75f),
                             )
@@ -58,7 +61,7 @@ fun RemindersScreen(navController: NavController) {
                 },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back), tint = Color.White)
                     }
                 },
                 actions = {
@@ -73,7 +76,7 @@ fun RemindersScreen(navController: NavController) {
                         }) {
                             Icon(
                                 Icons.Default.DeleteSweep,
-                                contentDescription = "Cancel all reminders",
+                                contentDescription = stringResource(R.string.reminders_cancel_all_cd),
                                 tint = Color.White,
                             )
                         }
@@ -101,13 +104,13 @@ fun RemindersScreen(navController: NavController) {
                     )
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        "No active reminders",
+                        stringResource(R.string.reminders_empty),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Long-press an arrival row to set a reminder.",
+                        stringResource(R.string.reminders_empty_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     )
@@ -176,13 +179,13 @@ private fun ReminderSwipeDismiss(onDismiss: () -> Unit, content: @Composable () 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
                         Icons.Default.AlarmOff,
-                        contentDescription = "Cancel reminder",
+                        contentDescription = stringResource(R.string.reminder_cancel),
                         tint = MaterialTheme.colorScheme.onErrorContainer,
                         modifier = Modifier.size(22.dp),
                     )
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        "Cancel",
+                        stringResource(R.string.action_cancel),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                     )
@@ -287,7 +290,7 @@ private fun ReminderRow(reminder: ActiveReminder, timeFmt: SimpleDateFormat, onC
                             modifier = Modifier.size(12.dp),
                         )
                         Text(
-                            "${reminder.minutesBefore} min before",
+                            stringResource(R.string.reminders_min_before, reminder.minutesBefore),
                             style = MaterialTheme.typography.labelSmall,
                             color = Primary,
                         )
@@ -295,7 +298,7 @@ private fun ReminderRow(reminder: ActiveReminder, timeFmt: SimpleDateFormat, onC
                 }
                 if (notifyAtMs > 0L) {
                     Text(
-                        "at ${timeFmt.format(Date(notifyAtMs))}",
+                        stringResource(R.string.reminders_at_time, timeFmt.format(Date(notifyAtMs))),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

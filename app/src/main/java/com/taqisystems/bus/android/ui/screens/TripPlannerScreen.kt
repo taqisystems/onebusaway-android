@@ -49,18 +49,38 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.taqisystems.bus.android.data.model.OtpItinerary
 import com.taqisystems.bus.android.data.model.PlaceResult
+import com.taqisystems.bus.android.data.model.SavedPlace
+import com.taqisystems.bus.android.R
 import com.taqisystems.bus.android.ui.navigation.Routes
 import com.taqisystems.bus.android.ui.theme.Blue600
 import com.taqisystems.bus.android.ui.theme.Primary
+import com.taqisystems.bus.android.ui.util.resolve
 import com.taqisystems.bus.android.ui.viewmodel.TripPlannerViewModel
 import com.taqisystems.bus.android.ui.viewmodel.TripPlannerViewModelFactory
 import com.taqisystems.bus.android.ui.viewmodel.SelectedItineraryHolder
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import java.text.SimpleDateFormat
 import java.util.*
+// Returns the active per-app locale (respects AppCompatDelegate.setApplicationLocales)
+private fun appLocale(): java.util.Locale =
+    androidx.appcompat.app.AppCompatDelegate.getApplicationLocales().get(0)
+        ?: java.util.Locale.getDefault()
+
+// h:mm a formatter — amStr/pmStr come from string resources (e.g. "AM"/"PM" or "PG"/"PTG")
+private fun h12Format(amStr: String, pmStr: String): java.text.SimpleDateFormat =
+    java.text.SimpleDateFormat("h:mm a", appLocale()).also { sdf ->
+        sdf.dateFormatSymbols = java.text.DateFormatSymbols(appLocale()).also {
+            it.amPmStrings = arrayOf(amStr, pmStr)
+        }
+    }
+
+
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-private fun buildDateList(): List<Pair<String, String>> {
+private fun buildDateList(todayStr: String, tomorrowStr: String): List<Pair<String, String>> {
     val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
     val dayFmt = SimpleDateFormat("EEE", Locale.getDefault())
     val dateFmt = SimpleDateFormat("d MMM", Locale.getDefault())
@@ -68,16 +88,16 @@ private fun buildDateList(): List<Pair<String, String>> {
         val cal = Calendar.getInstance().also { it.add(Calendar.DAY_OF_YEAR, offset) }
         val date = fmt.format(cal.time)
         val label = when (offset) {
-            0 -> "Today"
-            1 -> "Tomorrow"
+            0 -> todayStr
+            1 -> tomorrowStr
             else -> "${dayFmt.format(cal.time)}, ${dateFmt.format(cal.time)}"
         }
         label to date
     }
 }
 
-private fun buildTimeSlots(): List<Pair<String, String>> {
-    val fmt12 = SimpleDateFormat("h:mm a", Locale.US)
+private fun buildTimeSlots(amStr: String, pmStr: String): List<Pair<String, String>> {
+    val fmt12 = h12Format(amStr, pmStr)
     val fmtHH = SimpleDateFormat("HH:mm:ss", Locale.US)
     val cal = Calendar.getInstance()
     cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0)
@@ -89,25 +109,35 @@ private fun buildTimeSlots(): List<Pair<String, String>> {
     }
 }
 
-private fun timeBtnLabel(departMode: String, selectedDate: String?, selectedTime: String?): String {
-    if (departMode == "now") return "Depart Now"
-    val dateFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-    val fmt12 = SimpleDateFormat("h:mm a", Locale.US)
-    val fmtHH = SimpleDateFormat("HH:mm:ss", Locale.US)
-    val labelFmt = SimpleDateFormat("d MMM", Locale.getDefault())
-    val todayStr = dateFmt.format(Date())
-    val tomorrowStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(
-        Calendar.getInstance().also { it.add(Calendar.DAY_OF_YEAR, 1) }.time
+
+
+@Composable
+private fun timeBtnLabelComposable(departMode: String, selectedDate: String?, selectedTime: String?): String {
+    val todayStr = stringResource(R.string.plan_today)
+    val tomorrowStr = stringResource(R.string.plan_tomorrow)
+    val nowStr = stringResource(R.string.plan_now)
+    val departNowStr = stringResource(R.string.plan_depart_now)
+    val arriveByStr = stringResource(R.string.plan_arrive_by)
+    val departAtStr = stringResource(R.string.plan_depart_at)
+    val amStr = stringResource(R.string.time_am)
+    val pmStr = stringResource(R.string.time_pm)
+    if (departMode == "now") return departNowStr
+    val dateFmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+    val fmt12 = h12Format(amStr, pmStr)
+    val fmtHH = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+    val labelFmt = java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault())
+    val today = dateFmt.format(java.util.Date())
+    val tomorrow = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(
+        java.util.Calendar.getInstance().also { it.add(java.util.Calendar.DAY_OF_YEAR, 1) }.time
     )
     val dateLabel = when (selectedDate) {
-        todayStr, null -> "Today"
-        tomorrowStr -> "Tomorrow"
-        else -> selectedDate?.let { runCatching { labelFmt.format(dateFmt.parse(it)!!) }.getOrElse { it } } ?: "Today"
+        today, null -> todayStr
+        tomorrow -> tomorrowStr
+        else -> selectedDate?.let { runCatching { labelFmt.format(dateFmt.parse(it)!!) }.getOrElse { it } } ?: todayStr
     }
-    val timeLabel = selectedTime?.let { runCatching { fmt12.format(fmtHH.parse(it)!!) }.getOrElse { it } } ?: "Now"
-    return if (departMode == "arrive") "Arrive by $timeLabel, $dateLabel" else "Depart at $timeLabel, $dateLabel"
+    val timeLabel = selectedTime?.let { runCatching { fmt12.format(fmtHH.parse(it)!!) }.getOrElse { it } } ?: nowStr
+    return if (departMode == "arrive") arriveByStr.format(timeLabel, dateLabel) else departAtStr.format(timeLabel, dateLabel)
 }
-
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
@@ -122,8 +152,11 @@ fun TripPlannerScreen(
     val activity = LocalContext.current as ComponentActivity
     val viewModel: TripPlannerViewModel = viewModel(viewModelStoreOwner = activity, factory = TripPlannerViewModelFactory())
     val uiState by viewModel.uiState.collectAsState()
+    val homePlace by viewModel.homePlace.collectAsState()
+    val workPlace by viewModel.workPlace.collectAsState()
     var activeField by remember { mutableStateOf<String?>(null) }
     var showTimePicker by remember { mutableStateOf(false) }
+    var setPlaceFor by remember { mutableStateOf<String?>(null) } // "home" or "work"
 
     // Pre-fill destination if navigated from "Where to?" search
     LaunchedEffect(prefilledDestName) {
@@ -144,6 +177,8 @@ fun TripPlannerScreen(
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
     var gpsLoading by remember { mutableStateOf(false) }
 
+    val myLocationStr = stringResource(R.string.plan_my_location)
+
     val locationPermLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -154,7 +189,7 @@ fun TripPlannerScreen(
                     gpsLoading = false
                     loc?.let {
                         viewModel.selectOrigin(
-                            PlaceResult(label = "My Location", name = "My Location", lat = it.latitude, lon = it.longitude)
+                            PlaceResult(label = myLocationStr, name = myLocationStr, lat = it.latitude, lon = it.longitude)
                         )
                     }
                 }
@@ -171,7 +206,7 @@ fun TripPlannerScreen(
                     gpsLoading = false
                     loc?.let {
                         viewModel.selectOrigin(
-                            PlaceResult(label = "My Location", name = "My Location", lat = it.latitude, lon = it.longitude)
+                            PlaceResult(label = myLocationStr, name = myLocationStr, lat = it.latitude, lon = it.longitude)
                         )
                     }
                 }
@@ -187,13 +222,13 @@ fun TripPlannerScreen(
                 title = {
                     Column {
                         Text(
-                            "Plan a Trip",
+                            stringResource(R.string.plan_title),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
-                            "Find bus, rail & transit routes",
+                            stringResource(R.string.plan_subtitle),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -296,8 +331,8 @@ fun TripPlannerScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             // From field
                             LocationField(
-                                label = "From",
-                                hint = "Enter origin",
+                                label = stringResource(R.string.plan_from_label),
+                                hint = stringResource(R.string.plan_from_hint),
                                 value = uiState.originText,
                                 onValueChange = { viewModel.setOriginText(it); activeField = "origin" },
                                 onClear = { viewModel.clearOrigin(); activeField = null },
@@ -317,8 +352,8 @@ fun TripPlannerScreen(
                             Spacer(Modifier.height(8.dp))
                             // To field
                             LocationField(
-                                label = "To",
-                                hint = "Enter destination",
+                                label = stringResource(R.string.plan_to_label),
+                                hint = stringResource(R.string.plan_to_hint),
                                 value = uiState.destinationText,
                                 onValueChange = { viewModel.setDestinationText(it); activeField = "destination" },
                                 onClear = { viewModel.clearDestination(); activeField = null },
@@ -348,7 +383,7 @@ fun TripPlannerScreen(
                                 )
                             } else {
                                 IconButton(onClick = { onGpsClick() }, modifier = Modifier.size(36.dp)) {
-                                    Icon(Icons.Default.MyLocation, contentDescription = "My location", tint = Blue600, modifier = Modifier.size(20.dp))
+                                    Icon(Icons.Default.MyLocation, contentDescription = stringResource(R.string.plan_my_location_cd), tint = Blue600, modifier = Modifier.size(20.dp))
                                 }
                             }
                             // Spacer sized to visually align swap with the To field:
@@ -362,7 +397,7 @@ fun TripPlannerScreen(
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(MaterialTheme.colorScheme.surfaceContainerHigh),
                             ) {
-                                Icon(Icons.Default.SwapVert, contentDescription = "Swap", tint = Blue600, modifier = Modifier.size(20.dp))
+                                Icon(Icons.Default.SwapVert, contentDescription = stringResource(R.string.plan_swap_cd), tint = Blue600, modifier = Modifier.size(20.dp))
                             }
                         }
                     }
@@ -371,9 +406,42 @@ fun TripPlannerScreen(
                     HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     Spacer(Modifier.height(12.dp))
 
+                    // ── Saved place quick-fill chips ─────────────────────────
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(bottom = 10.dp),
+                    ) {
+                        SavedPlaceChip(
+                            icon = Icons.Default.Home,
+                            label = stringResource(if (homePlace != null) R.string.plan_home else R.string.plan_set_home),
+                            isSet = homePlace != null,
+                            contentDescription = stringResource(R.string.plan_home_cd),
+                            onClick = {
+                                val h = homePlace
+                                if (h != null) viewModel.fillWithSavedPlace(h.toPlaceResult())
+                                else setPlaceFor = "home"
+                            },
+                            onLongClick = { setPlaceFor = "home" },
+                            modifier = Modifier.weight(1f),
+                        )
+                        SavedPlaceChip(
+                            icon = Icons.Default.Work,
+                            label = stringResource(if (workPlace != null) R.string.plan_work else R.string.plan_set_work),
+                            isSet = workPlace != null,
+                            contentDescription = stringResource(R.string.plan_work_cd),
+                            onClick = {
+                                val w = workPlace
+                                if (w != null) viewModel.fillWithSavedPlace(w.toPlaceResult())
+                                else setPlaceFor = "work"
+                            },
+                            onLongClick = { setPlaceFor = "work" },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+
                     // ── When: time picker ────────────────────────────────────
                     Text(
-                        "WHEN",
+                        stringResource(R.string.plan_when_section),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -390,7 +458,7 @@ fun TripPlannerScreen(
                         Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            timeBtnLabel(uiState.departMode, uiState.selectedDate, uiState.selectedTime),
+                            timeBtnLabelComposable(uiState.departMode, uiState.selectedDate, uiState.selectedTime),
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium,
                             maxLines = 1,
@@ -403,7 +471,7 @@ fun TripPlannerScreen(
 
                     // ── Mode chips ───────────────────────────────────────────
                     Text(
-                        "MODE",
+                        stringResource(R.string.plan_section_mode),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -414,12 +482,12 @@ fun TripPlannerScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = PaddingValues(horizontal = 0.dp),
                     ) {
-                        item { ModeChip("All",      "TRANSIT,WALK",  uiState.selectedMode, viewModel::setMode) }
-                        item { ModeChip("Bus",      "BUS,WALK",      uiState.selectedMode, viewModel::setMode) }
-                        item { ModeChip("LRT",      "TRAM,WALK",     uiState.selectedMode, viewModel::setMode) }
-                        item { ModeChip("MRT",      "SUBWAY,WALK",   uiState.selectedMode, viewModel::setMode) }
-                        item { ModeChip("Rail",     "RAIL,WALK",     uiState.selectedMode, viewModel::setMode) }
-                        item { ModeChip("Monorail", "MONORAIL,WALK", uiState.selectedMode, viewModel::setMode) }
+                        item { ModeChip(stringResource(R.string.plan_mode_all),      "TRANSIT,WALK",  uiState.selectedMode, viewModel::setMode) }
+                        item { ModeChip(stringResource(R.string.plan_mode_bus),      "BUS,WALK",      uiState.selectedMode, viewModel::setMode) }
+                        item { ModeChip(stringResource(R.string.plan_mode_lrt),      "TRAM,WALK",     uiState.selectedMode, viewModel::setMode) }
+                        item { ModeChip(stringResource(R.string.plan_mode_mrt),      "SUBWAY,WALK",   uiState.selectedMode, viewModel::setMode) }
+                        item { ModeChip(stringResource(R.string.plan_mode_rail),     "RAIL,WALK",     uiState.selectedMode, viewModel::setMode) }
+                        item { ModeChip(stringResource(R.string.plan_mode_monorail), "MONORAIL,WALK", uiState.selectedMode, viewModel::setMode) }
                     }
 
                     Spacer(Modifier.height(14.dp))
@@ -437,11 +505,11 @@ fun TripPlannerScreen(
                         if (uiState.loading) {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
                             Spacer(Modifier.width(10.dp))
-                            Text("Finding Routes…", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.plan_finding_routes), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                         } else {
                             Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("Find Routes", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.plan_find_routes), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -472,13 +540,13 @@ fun TripPlannerScreen(
                                 )
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text(
-                                        "No route found",
+                                        stringResource(R.string.plan_no_route),
                                         style = MaterialTheme.typography.labelLarge,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onErrorContainer,
                                     )
                                     Text(
-                                        error,
+                                        error.resolve(context),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onErrorContainer,
                                     )
@@ -501,7 +569,7 @@ fun TripPlannerScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            "Route Options",
+                            stringResource(R.string.plan_route_options),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                         )
@@ -533,9 +601,25 @@ fun TripPlannerScreen(
         }
     }
 
+    // ── Saved place editor sheet ─────────────────────────────────────────────
+    setPlaceFor?.let { which ->
+        val isHome = which == "home"
+        val existingPlace = if (isHome) homePlace else workPlace
+        SetPlaceBottomSheet(
+            title = stringResource(if (isHome) R.string.settings_home_label else R.string.settings_work_label),
+            icon = if (isHome) Icons.Default.Home else Icons.Default.Work,
+            existingPlace = existingPlace,
+            viewModel = viewModel,
+            onSave = { place ->
+                if (isHome) viewModel.saveHomePlace(place) else viewModel.saveWorkPlace(place)
+                setPlaceFor = null
+            },
+            onDismiss = { setPlaceFor = null },
+        )
+    }
+
     // ── Date/time picker bottom sheet ────────────────────────────────────────
-    if (showTimePicker) {
-        DateTimePickerSheet(
+    if (showTimePicker) {        DateTimePickerSheet(
             currentDepartMode = uiState.departMode,
             currentDate = uiState.selectedDate,
             currentTime = uiState.selectedTime,
@@ -561,13 +645,17 @@ private fun DateTimePickerSheet(
     onConfirm: (date: String, time: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val dateList = remember { buildDateList() }
-    val timeSlots = remember { buildTimeSlots() }
+    val todayStr = stringResource(R.string.plan_today)
+    val tomorrowStr = stringResource(R.string.plan_tomorrow)
+    val dateList = remember(todayStr, tomorrowStr) { buildDateList(todayStr, tomorrowStr) }
+    val amStr = stringResource(R.string.time_am)
+    val pmStr = stringResource(R.string.time_pm)
+    val timeSlots = remember(amStr, pmStr) { buildTimeSlots(amStr, pmStr) }
     val dateFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-    val todayStr = remember { dateFmt.format(Date()) }
+    val currentDateStr = remember { dateFmt.format(Date()) }
 
     var selectedDepartMode by remember { mutableStateOf(currentDepartMode) }
-    var selectedDate by remember { mutableStateOf(currentDate ?: todayStr) }
+    var selectedDate by remember { mutableStateOf(currentDate ?: currentDateStr) }
     var selectedTime by remember { mutableStateOf(currentTime ?: timeSlots[0].second) }
 
     ModalBottomSheet(
@@ -604,12 +692,12 @@ private fun DateTimePickerSheet(
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Text(
-                        "Departure Options",
+                        stringResource(R.string.plan_departure_options_title),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        "Choose when you want to travel",
+                        stringResource(R.string.plan_departure_options_subtitle),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -620,9 +708,9 @@ private fun DateTimePickerSheet(
 
             // ── Mode toggle — full-width segmented 3-button row ──────────────────
             val modes = listOf(
-                Triple("now",    "Depart Now",  Icons.Default.FlashOn),
-                Triple("depart", "Depart At",   Icons.Default.Schedule),
-                Triple("arrive", "Arrive By",   Icons.Default.Flag),
+                Triple("now",    stringResource(R.string.plan_depart_now),  Icons.Default.FlashOn),
+                Triple("depart", stringResource(R.string.plan_depart_at_short),   Icons.Default.Schedule),
+                Triple("arrive", stringResource(R.string.plan_arrive_by_short),   Icons.Default.Flag),
             )
             Row(
                 modifier = Modifier
@@ -768,7 +856,7 @@ private fun DateTimePickerSheet(
                 ) {
                     Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Confirm", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.plan_confirm), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -861,7 +949,7 @@ private fun LocationField(
             if (value.isNotBlank()) {
                 Spacer(Modifier.width(4.dp))
                 IconButton(onClick = onClear, modifier = Modifier.size(20.dp)) {
-                    Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_clear), modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -962,7 +1050,7 @@ private fun ItineraryCard(itinerary: OtpItinerary, onClick: () -> Unit) {
     val walkSec = itinerary.legs.filter { !it.transitLeg }.sumOf { it.endTime - it.startTime }
     val walkMin = (walkSec / 1000 / 60).toInt()
     val transfers = (transitLegs.size - 1).coerceAtLeast(0)
-    val fmt = SimpleDateFormat("h:mm a", Locale.getDefault())
+    val fmt = h12Format(stringResource(R.string.time_am), stringResource(R.string.time_pm))
     val startTime = fmt.format(Date(itinerary.startTime))
     val endTime = fmt.format(Date(itinerary.endTime))
 
@@ -1101,7 +1189,7 @@ private fun ItineraryCard(itinerary: OtpItinerary, onClick: () -> Unit) {
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        "Walk only",
+                        stringResource(R.string.plan_walk_only),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1128,7 +1216,7 @@ private fun ItineraryCard(itinerary: OtpItinerary, onClick: () -> Unit) {
                             modifier = Modifier.size(14.dp),
                         )
                         Text(
-                            "$walkMin min walk",
+                            stringResource(R.string.plan_walk_min, walkMin),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1141,7 +1229,7 @@ private fun ItineraryCard(itinerary: OtpItinerary, onClick: () -> Unit) {
                             modifier = Modifier.size(14.dp),
                         )
                         Text(
-                            "Direct",
+                            stringResource(R.string.plan_direct),
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary,
@@ -1159,6 +1247,123 @@ private fun ItineraryCard(itinerary: OtpItinerary, onClick: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun SavedPlaceChip(
+    icon: ImageVector,
+    label: String,
+    isSet: Boolean,
+    contentDescription: String,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val containerColor = if (isSet) MaterialTheme.colorScheme.secondaryContainer
+                         else MaterialTheme.colorScheme.surfaceContainerHigh
+    val contentColor   = if (isSet) MaterialTheme.colorScheme.onSecondaryContainer
+                         else MaterialTheme.colorScheme.onSurfaceVariant
+
+    Surface(
+        modifier = modifier
+            .height(40.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        shape = RoundedCornerShape(20.dp),
+        color = containerColor,
+        tonalElevation = if (isSet) 0.dp else 1.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = contentDescription,
+                modifier = Modifier.size(16.dp),
+                tint = contentColor,
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = contentColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SetPlaceBottomSheet(
+    title: String,
+    icon: ImageVector,
+    existingPlace: SavedPlace?,
+    viewModel: TripPlannerViewModel,
+    onSave: (SavedPlace) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    var query by remember { mutableStateOf(existingPlace?.label ?: "") }
+    val context = LocalContext.current
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 32.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = query,
+                onValueChange = {
+                    query = it
+                    viewModel.searchPlaces(it)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                placeholder = { Text(stringResource(R.string.plan_saved_place_hint)) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            )
+            Spacer(Modifier.height(8.dp))
+            if (uiState.loading) {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+            } else {
+                uiState.suggestions.forEach { place ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onSave(SavedPlace(label = place.label, lat = place.lat, lon = place.lon))
+                            }
+                            .padding(vertical = 10.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Default.LocationOn,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(place.label, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    HorizontalDivider()
                 }
             }
         }

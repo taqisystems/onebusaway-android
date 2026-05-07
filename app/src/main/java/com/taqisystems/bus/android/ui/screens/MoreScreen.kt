@@ -3,6 +3,8 @@
 
 package com.taqisystems.bus.android.ui.screens
 
+import androidx.compose.ui.res.stringResource
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -62,7 +64,7 @@ fun MoreScreen(navController: NavController) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Image(
                         painter = painterResource(R.drawable.logo),
-                        contentDescription = "Kelantan Bus logo",
+                        contentDescription = stringResource(R.string.onboarding_logo_cd),
                         modifier = Modifier
                             .size(56.dp)
                             .clip(RoundedCornerShape(14.dp)),
@@ -70,13 +72,13 @@ fun MoreScreen(navController: NavController) {
                     Spacer(Modifier.width(14.dp))
                     Column {
                         Text(
-                            "Kelantan Bus",
+                            stringResource(R.string.app_name),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimary,
                         )
                         Text(
-                            "Real-time transit for Malaysia",
+                            stringResource(R.string.more_tagline),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f),
                         )
@@ -87,7 +89,7 @@ fun MoreScreen(navController: NavController) {
             Spacer(Modifier.height(12.dp))
 
             // ── Section: Manage ──────────────────────────────────────────────
-            SectionLabel("Manage")
+            SectionLabel(stringResource(R.string.more_section_manage))
 
             Surface(
                 modifier = Modifier
@@ -101,8 +103,8 @@ fun MoreScreen(navController: NavController) {
                     MenuRow(
                         icon          = Icons.Default.Alarm,
                         tileColor     = Color(0xFFE65100),
-                        title         = "Reminders",
-                        subtitle      = if (reminderCount.isNotEmpty()) "${reminderCount.size} active" else "No active reminders",
+                        title         = stringResource(R.string.nav_reminders),
+                        subtitle      = if (reminderCount.isNotEmpty()) stringResource(R.string.more_reminders_active, reminderCount.size) else stringResource(R.string.more_reminders_no_active),
                         badgeCount    = reminderCount.size,
                         showDivider   = false,
                     ) { navController.navigate(Routes.REMINDERS) }
@@ -112,7 +114,7 @@ fun MoreScreen(navController: NavController) {
             Spacer(Modifier.height(16.dp))
 
             // ── Section: App ─────────────────────────────────────────────────
-            SectionLabel("App")
+            SectionLabel(stringResource(R.string.more_section_app))
 
             Surface(
                 modifier = Modifier
@@ -126,32 +128,32 @@ fun MoreScreen(navController: NavController) {
                     MenuRow(
                         icon        = Icons.Default.Settings,
                         tileColor   = Color(0xFF37474F),
-                        title       = "Settings",
-                        subtitle    = "Region, preferences",
+                        title       = stringResource(R.string.settings_title),
+                        subtitle    = stringResource(R.string.more_settings_subtitle),
                         showDivider = true,
                     ) { navController.navigate(Routes.SETTINGS) }
 
                     MenuRow(
                         icon        = Icons.Default.Info,
                         tileColor   = Color(0xFF2E7D32),
-                        title       = "About",
-                        subtitle    = "App info & open-source licences",
+                        title       = stringResource(R.string.about_title),
+                        subtitle    = stringResource(R.string.more_about_subtitle),
                         showDivider = true,
                     ) { navController.navigate(Routes.ABOUT) }
 
                     MenuRow(
                         icon        = Icons.Default.Speed,
                         tileColor   = Color(0xFF00695C),
-                        title       = "Service Status",
-                        subtitle    = "Check if all services are operational",
+                        title       = stringResource(R.string.more_status_title),
+                        subtitle    = stringResource(R.string.more_status_subtitle),
                         showDivider = true,
                     ) { uriHandler.openUri("https://status.kelantanbus.com") }
 
                     MenuRow(
                         icon        = Icons.Default.Feedback,
                         tileColor   = Color(0xFF6A1B9A),
-                        title       = "Feedback",
-                        subtitle    = "Report an issue or suggest a feature",
+                        title       = stringResource(R.string.more_feedback_title),
+                        subtitle    = stringResource(R.string.more_feedback_subtitle),
                         showDivider = false,
                     ) { navController.navigate(Routes.FEEDBACK) }
                 }

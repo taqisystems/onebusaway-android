@@ -71,6 +71,9 @@
     <plurals name="saved_routes_count">
         <item quantity="other">%d laluan</item>
     </plurals>
+    <plurals name="notifications_count">
+        <item quantity="other">%d pemberitahuan</item>
+    </plurals>
 
     <!-- ════════════ Settings screen ════════════ -->
     <string name="settings_title">Tetapan</string>
@@ -331,6 +334,9 @@
     <plurals name="plan_transfers">
         <item quantity="other">%d pertukaran</item>
     </plurals>
+    <plurals name="map_stop_route_count">
+        <item quantity="other">%d laluan</item>
+    </plurals>
     <string name="plan_finding_routes">Mencari Laluan\u2026</string>
     <string name="plan_confirm">Sahkan</string>
     <string name="plan_no_route">Tiada laluan dijumpai</string>
@@ -343,7 +349,7 @@
     <string name="plan_set_work">Tetapkan Tempat Kerja</string>
     <string name="plan_home_cd">Guna alamat rumah</string>
     <string name="plan_work_cd">Guna alamat tempat kerja</string>
-    <string name="plan_saved_places_section">Tempat Tersimpan</string>
+    <string name="plan_saved_places_section">TEMPAT TERSIMPAN</string>
     <string name="plan_set_home_title">Tetapkan Alamat Rumah</string>
     <string name="plan_set_work_title">Tetapkan Alamat Tempat Kerja</string>
     <string name="plan_saved_place_hint">Cari tempat…</string>
@@ -352,12 +358,14 @@
     <string name="plan_home_long_press">Tahan untuk edit rumah</string>
     <string name="plan_work_long_press">Tahan untuk edit tempat kerja</string>
     <!-- Settings - Saved Places -->
-    <string name="settings_section_saved_places">Tempat Tersimpan</string>
+    <string name="settings_section_saved_places">TEMPAT TERSIMPAN</string>
     <string name="settings_home_label">Rumah</string>
     <string name="settings_work_label">Tempat Kerja</string>
     <string name="settings_saved_place_not_set">Belum ditetapkan — ketik untuk tambah</string>
     <string name="settings_saved_place_change">Tukar</string>
     <string name="settings_saved_place_clear">Padam</string>
+    <string name="time_am">PG</string>
+    <string name="time_pm">PTG</string>
     <string name="plan_swap_cd">Tukar ganti</string>
 
     <!-- ════════════ Trip Itinerary screen ════════════ -->

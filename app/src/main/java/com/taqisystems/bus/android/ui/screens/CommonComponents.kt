@@ -3,6 +3,9 @@
 
 package com.taqisystems.bus.android.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.taqisystems.bus.android.R
+
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
@@ -54,9 +57,9 @@ fun BottomNavBar(
                 selected = selected == 0,
                 onClick  = { onSelect(0) },
                 icon     = {
-                    Icon(if (selected == 0) Icons.Filled.Map else Icons.Outlined.Map, "Map")
+                    Icon(if (selected == 0) Icons.Filled.Map else Icons.Outlined.Map, stringResource(R.string.nav_map))
                 },
-                label  = { Text("Map", fontSize = 10.sp) },
+                label  = { Text(stringResource(R.string.nav_map), fontSize = 10.sp) },
                 colors = itemColors,
             )
             NavigationBarItem(
@@ -65,10 +68,10 @@ fun BottomNavBar(
                 icon     = {
                     Icon(
                         if (selected == 1) Icons.Filled.DirectionsTransit else Icons.Outlined.DirectionsTransit,
-                        "Plan",
+                        stringResource(R.string.nav_plan),
                     )
                 },
-                label  = { Text("Plan", fontSize = 10.sp) },
+                label  = { Text(stringResource(R.string.nav_plan), fontSize = 10.sp) },
                 colors = itemColors,
             )
             NavigationBarItem(
@@ -77,17 +80,17 @@ fun BottomNavBar(
                 icon     = {
                     Icon(
                         if (selected == 2) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
-                        "Saved",
+                        stringResource(R.string.nav_saved),
                     )
                 },
-                label  = { Text("Saved", fontSize = 10.sp) },
+                label  = { Text(stringResource(R.string.nav_saved), fontSize = 10.sp) },
                 colors = itemColors,
             )
             NavigationBarItem(
                 selected = selected == 3,
                 onClick  = { onSelect(3) },
-                icon     = { Icon(Icons.Filled.MoreHoriz, "More") },
-                label  = { Text("More", fontSize = 10.sp) },
+                icon     = { Icon(Icons.Filled.MoreHoriz, stringResource(R.string.nav_more)) },
+                label  = { Text(stringResource(R.string.nav_more), fontSize = 10.sp) },
                 colors = itemColors,
             )
         }

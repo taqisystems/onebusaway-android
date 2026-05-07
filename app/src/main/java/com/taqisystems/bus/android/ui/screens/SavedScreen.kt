@@ -23,8 +23,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import com.taqisystems.bus.android.PendingStopFocus
+import com.taqisystems.bus.android.R
 import com.taqisystems.bus.android.data.model.SavedRoute
 import com.taqisystems.bus.android.data.model.SavedStop
 import com.taqisystems.bus.android.ui.navigation.Routes
@@ -32,6 +36,7 @@ import com.taqisystems.bus.android.ui.theme.Blue600
 import com.taqisystems.bus.android.ui.theme.Primary
 import com.taqisystems.bus.android.ui.viewmodel.StopDetailsViewModel
 import com.taqisystems.bus.android.ui.viewmodel.StopDetailsViewModelFactory
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,17 +47,23 @@ fun SavedScreen(
     val savedStops  by viewModel.savedStops.collectAsState()
     val savedRoutes by viewModel.savedRoutes.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val stopRemovedMsg  = stringResource(R.string.stop_removed_snack)
+    val routeRemovedMsg = stringResource(R.string.route_removed_snack)
+    val undoLabel       = stringResource(R.string.action_undo)
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             Column {
                 TopAppBar(
                     title = {
-                        Column {
-                            Text("Saved", fontWeight = FontWeight.Bold)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(stringResource(R.string.saved_title), fontWeight = FontWeight.Bold)
                             val subtitle = when (selectedTab) {
-                                0 -> if (savedStops.isEmpty()) "No saved stops" else "${savedStops.size} stop${if (savedStops.size == 1) "" else "s"}"
-                                else -> if (savedRoutes.isEmpty()) "No saved routes" else "${savedRoutes.size} route${if (savedRoutes.size == 1) "" else "s"}"
+                                0 -> if (savedStops.isEmpty()) stringResource(R.string.saved_stops_empty_title) else pluralStringResource(R.plurals.saved_stops_count, savedStops.size, savedStops.size)
+                                else -> if (savedRoutes.isEmpty()) stringResource(R.string.saved_routes_empty_title) else pluralStringResource(R.plurals.saved_routes_count, savedRoutes.size, savedRoutes.size)
                             }
                             Text(
                                 subtitle,
@@ -69,7 +80,7 @@ fun SavedScreen(
                         text = {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Text("Stops")
+                                Text(stringResource(R.string.saved_tab_stops))
                             }
                         },
                     )
@@ -79,7 +90,7 @@ fun SavedScreen(
                         text = {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Icon(Icons.Default.DirectionsBus, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Text("Routes")
+                                Text(stringResource(R.string.saved_tab_routes))
                             }
                         },
                     )
@@ -98,17 +109,36 @@ fun SavedScreen(
     ) { innerPadding ->
         when (selectedTab) {
             0 -> SavedStopsList(
-                stops       = savedStops,
+                stops        = savedStops,
                 innerPadding = innerPadding,
-                onClickStop = { stop -> navController.navigate(Routes.stopDetails(stop.id, stop.name, stop.code)) },
-                onPlanTrip  = { stop ->
+                onClickStop  = { stop ->
+                    PendingStopFocus.set(stop.id, stop.name, stop.lat, stop.lon)
+                    navController.navigate(Routes.HOME) {
+                        popUpTo(Routes.HOME) { saveState = true }
+                        launchSingleTop = true
+                        restoreState    = true
+                    }
+                },
+                onPlanTrip   = { stop ->
                     navController.navigate(
                         if (stop.lat != 0.0 && stop.lon != 0.0)
                             Routes.planWithDest(stop.name, stop.lat, stop.lon)
                         else Routes.PLAN_PLAIN,
                     )
                 },
-                onRemove    = { stop -> viewModel.toggleSaved(stop.id, stop.name, stop.code) },
+                onRemove     = { stop ->
+                    viewModel.toggleSaved(stop)
+                    scope.launch {
+                        val result = snackbarHostState.showSnackbar(
+                            message      = stopRemovedMsg,
+                            actionLabel  = undoLabel,
+                            duration     = SnackbarDuration.Short,
+                        )
+                        if (result == SnackbarResult.ActionPerformed) {
+                            viewModel.toggleSaved(stop)
+                        }
+                    }
+                },
             )
             1 -> SavedRoutesList(
                 routes       = savedRoutes,
@@ -125,7 +155,19 @@ fun SavedScreen(
                         )
                     )
                 },
-                onRemove = { route -> viewModel.toggleSavedRoute(route) },
+                onRemove = { route ->
+                    viewModel.toggleSavedRoute(route)
+                    scope.launch {
+                        val result = snackbarHostState.showSnackbar(
+                            message     = routeRemovedMsg,
+                            actionLabel = undoLabel,
+                            duration    = SnackbarDuration.Short,
+                        )
+                        if (result == SnackbarResult.ActionPerformed) {
+                            viewModel.toggleSavedRoute(route)
+                        }
+                    }
+                },
             )
         }
     }
@@ -145,8 +187,8 @@ private fun SavedStopsList(
     if (stops.isEmpty()) {
         SavedEmptyState(
             icon     = Icons.Default.LocationOff,
-            title    = "No saved stops",
-            subtitle = "Tap the bookmark icon on any stop to save it here.",
+            title    = stringResource(R.string.saved_stops_empty_title),
+            subtitle = stringResource(R.string.saved_stops_empty_subtitle),
             padding  = innerPadding,
         )
     } else {
@@ -181,8 +223,8 @@ private fun SavedRoutesList(
     if (routes.isEmpty()) {
         SavedEmptyState(
             icon     = Icons.Default.BookmarkBorder,
-            title    = "No saved routes",
-            subtitle = "Tap the bookmark icon on any route to save it here.",
+            title    = stringResource(R.string.saved_routes_empty_title),
+            subtitle = stringResource(R.string.saved_routes_empty_subtitle),
             padding  = innerPadding,
         )
     } else {
@@ -279,13 +321,13 @@ private fun SwipeToDismissItem(onDismiss: () -> Unit, content: @Composable () ->
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
                         Icons.Default.BookmarkRemove,
-                        contentDescription = "Remove",
+                        contentDescription = stringResource(R.string.action_remove),
                         tint     = MaterialTheme.colorScheme.onErrorContainer,
                         modifier = Modifier.size(22.dp),
                     )
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        "Remove",
+                        stringResource(R.string.action_remove),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                     )
@@ -337,7 +379,7 @@ private fun SavedStopRow(stop: SavedStop, onClick: () -> Unit, onPlanTrip: () ->
             if (stop.code.isNotBlank()) {
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    "Stop #${stop.code}",
+                    stringResource(R.string.saved_stop_code, stop.code),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -356,7 +398,7 @@ private fun SavedStopRow(stop: SavedStop, onClick: () -> Unit, onPlanTrip: () ->
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Icon(Icons.Default.Directions, contentDescription = null, tint = Primary, modifier = Modifier.size(12.dp))
-                    Text("Plan Trip", style = MaterialTheme.typography.labelSmall, color = Primary)
+                    Text(stringResource(R.string.saved_plan_trip), style = MaterialTheme.typography.labelSmall, color = Primary)
                 }
             }
         }

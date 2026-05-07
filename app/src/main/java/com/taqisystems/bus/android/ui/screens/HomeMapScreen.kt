@@ -3,6 +3,10 @@
 
 package com.taqisystems.bus.android.ui.screens
 
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.taqisystems.bus.android.R
+
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -19,7 +23,6 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -76,6 +79,7 @@ import com.taqisystems.bus.android.ui.viewmodel.HomeSearchResult
 import com.taqisystems.bus.android.ui.map.VehicleMarkerFactory
 import com.taqisystems.bus.android.ui.viewmodel.HomeViewModel
 import com.taqisystems.bus.android.ui.viewmodel.HomeViewModelFactory
+import com.taqisystems.bus.android.ui.util.resolve
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.lifecycle.Lifecycle
@@ -89,6 +93,7 @@ fun HomeMapScreen(
     viewModel: HomeViewModel = viewModel(factory = HomeViewModelFactory()),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
 
     // Refresh arrivals immediately when app returns to foreground if data is stale.
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -155,6 +160,9 @@ fun HomeMapScreen(
 
     // Sheet state — persistent BottomSheetScaffold with peek
     val selectedStop = uiState.selectedStop
+    // When true, sheet collapses to show drag handle + header row only
+    var userMinimized by remember { mutableStateOf(false) }
+    LaunchedEffect(selectedStop?.id) { userMinimized = false }
     val sheetState = rememberStandardBottomSheetState(
         initialValue = SheetValue.PartiallyExpanded,
         // Allow the sheet to be dragged freely in both directions.
@@ -182,7 +190,7 @@ fun HomeMapScreen(
     LaunchedEffect(regionSwitchMessage) {
         if (regionSwitchMessage != null) {
             snackbarHostState.showSnackbar(
-                message = regionSwitchMessage,
+                message = regionSwitchMessage.resolve(context),
                 duration = SnackbarDuration.Short,
             )
             viewModel.clearRegionSwitchMessage()
@@ -193,14 +201,21 @@ fun HomeMapScreen(
     val activeReminders by viewModel.activeReminders.collectAsState()
     val unreadNotifCount by ServiceLocator.preferences.unreadNotificationCount.collectAsState(initial = 0)
 
+    // Translated string resources
+    val undoText = stringResource(R.string.action_undo)
+    val stopSavedText = stringResource(R.string.stop_saved_snack)
+    val stopRemovedText = stringResource(R.string.stop_removed_snack)
+    val locationPermText = stringResource(R.string.map_location_permission_required)
+    val settingsText = stringResource(R.string.action_settings)
+
     // Reminder snackbar with optional Undo
     LaunchedEffect(uiState.reminderMessage) {
         val msg = uiState.reminderMessage
-        if (!msg.isNullOrBlank()) {
+        if (msg != null) {
             val canUndo = uiState.lastCancelledReminder != null
             val result = snackbarHostState.showSnackbar(
-                message = msg,
-                actionLabel = if (canUndo) "Undo" else null,
+                message = msg.resolve(context),
+                actionLabel = if (canUndo) undoText else null,
                 duration = SnackbarDuration.Short,
             )
             if (result == SnackbarResult.ActionPerformed) viewModel.undoCancelReminder()
@@ -328,7 +343,13 @@ fun HomeMapScreen(
     //   total (pinned): 520dp + nav bar inset  (generous for pinned row with secondary/via line)
     val navBarInset      = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val handleBarHeight  = 52.dp
+    val headerRowHeight  = 80.dp  // 12dp pad-top + headlineMedium + sub-labels + 12dp pad-bottom
+    // Reset minimized when user drags sheet back up
+    LaunchedEffect(sheetState.currentValue) {
+        if (sheetState.currentValue == SheetValue.Expanded) userMinimized = false
+    }
     val peekHeight = when {
+        userMinimized                       -> handleBarHeight + headerRowHeight
         selectedStop == null                -> handleBarHeight
         uiState.pinnedTripVehicleId != null -> navBarInset + 330.dp  // 300dp + ~30dp for 2-line name + via/sched lines
         else                               -> navBarInset + 300.dp
@@ -387,7 +408,7 @@ fun HomeMapScreen(
                             viewModel.toggleSaved(selectedStop)
                             scope.launch {
                                 snackbarHostState.showSnackbar(
-                                    if (wasSaved) "Stop removed from saved" else "Stop saved",
+                                    if (wasSaved) stopRemovedText else stopSavedText,
                                     duration = SnackbarDuration.Short,
                                 )
                             }
@@ -399,6 +420,7 @@ fun HomeMapScreen(
                         },
                         onDismiss = { viewModel.clearSelectedStop() },
                         onMinimize = {
+                            userMinimized = true
                             scope.launch { scaffoldState.bottomSheetState.partialExpand() }
                         },
                         onUnpinTrip = { viewModel.unpinTrip() },
@@ -441,7 +463,7 @@ fun HomeMapScreen(
                         contentAlignment = Alignment.CenterStart,
                     ) {
                         Text(
-                            "Tap a bus stop on the map to see live arrivals",
+                            stringResource(R.string.map_tap_to_see_arrivals),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -570,10 +592,10 @@ fun HomeMapScreen(
                         else                    -> VehicleMarkerFactory.COLOR_SCHEDULED
                     }
                     val statusLabel = when (arrival.status) {
-                        ArrivalStatus.ON_TIME   -> "On time"
-                        ArrivalStatus.DELAYED   -> "Delayed"
-                        ArrivalStatus.EARLY     -> "Early"
-                        else                    -> "Scheduled"
+                        ArrivalStatus.ON_TIME   -> stringResource(R.string.status_on_time)
+                        ArrivalStatus.DELAYED   -> stringResource(R.string.status_delayed)
+                        ArrivalStatus.EARLY     -> stringResource(R.string.status_early)
+                        else                    -> stringResource(R.string.status_scheduled)
                     }
                     val isFocused = uiState.focusedVehicle?.let { fv ->
                         (fv.vehicleId != null && fv.vehicleId == arrival.vehicleId) ||
@@ -667,10 +689,10 @@ fun HomeMapScreen(
                             else                    -> VehicleMarkerFactory.COLOR_SCHEDULED
                         }
                         val statusLabel = when (arrival.status) {
-                            ArrivalStatus.ON_TIME   -> "On time"
-                            ArrivalStatus.DELAYED   -> "Delayed"
-                            ArrivalStatus.EARLY     -> "Early"
-                            else                    -> "Scheduled"
+                            ArrivalStatus.ON_TIME   -> stringResource(R.string.status_on_time)
+                            ArrivalStatus.DELAYED   -> stringResource(R.string.status_delayed)
+                            ArrivalStatus.EARLY     -> stringResource(R.string.status_early)
+                            else                    -> stringResource(R.string.status_scheduled)
                         }
                         val markerResult = remember(
                             arrival.status,
@@ -709,8 +731,8 @@ fun HomeMapScreen(
         // ── Location error snackbar ───────────────────────────────────────────
         LaunchedEffect(uiState.locationError) {
             val err = uiState.locationError
-            if (!err.isNullOrBlank()) {
-                snackbarHostState.showSnackbar(err, duration = SnackbarDuration.Short)
+            if (err != null) {
+                snackbarHostState.showSnackbar(err.resolve(context), duration = SnackbarDuration.Short)
                 viewModel.clearLocationError()
             }
         }
@@ -756,7 +778,7 @@ fun HomeMapScreen(
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                         Icon(
                             if (unreadNotifCount > 0) Icons.Default.Notifications else Icons.Default.NotificationsNone,
-                            contentDescription = "Notifications",
+                            contentDescription = stringResource(R.string.map_notifications_cd),
                             tint = if (unreadNotifCount > 0)
                                 MaterialTheme.colorScheme.primary
                             else
@@ -800,8 +822,8 @@ fun HomeMapScreen(
                         } else {
                             scope.launch {
                                 val result = snackbarHostState.showSnackbar(
-                                    "Location permission required",
-                                    actionLabel = "Settings",
+                                    locationPermText,
+                                    actionLabel = settingsText,
                                     duration = SnackbarDuration.Long,
                                 )
                                 if (result == SnackbarResult.ActionPerformed) {
@@ -827,7 +849,7 @@ fun HomeMapScreen(
                     } else {
                         Icon(
                             Icons.Default.MyLocation,
-                            contentDescription = "My Location",
+                            contentDescription = stringResource(R.string.map_my_location_cd),
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(18.dp),
                         )
@@ -867,7 +889,7 @@ fun HomeMapScreen(
                             onClick = { viewModel.setSearchActive(false) },
                             modifier = Modifier.size(32.dp),
                         ) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Close search", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.map_close_search_cd), tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
                         }
                     } else {
                         Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
@@ -884,7 +906,7 @@ fun HomeMapScreen(
                         decorationBox = { inner ->
                             if (uiState.searchQuery.isEmpty()) {
                                 Text(
-                                    if (isListening) "Listening…" else "Where to?",
+                                    if (isListening) stringResource(R.string.map_listening) else stringResource(R.string.map_where_to),
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = if (isListening) MaterialTheme.colorScheme.primary
                                             else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -897,7 +919,7 @@ fun HomeMapScreen(
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                     } else if (uiState.searchQuery.isNotEmpty()) {
                         IconButton(onClick = { viewModel.onSearchQueryChanged("") }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Clear, contentDescription = stringResource(R.string.action_clear), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                         }
                     } else {
                         // Mic button — pulsing red while listening, primary tint at rest
@@ -916,7 +938,7 @@ fun HomeMapScreen(
                         ) {
                             Icon(
                                 if (isListening) Icons.Default.MicNone else Icons.Default.Mic,
-                                contentDescription = "Voice search",
+                                contentDescription = stringResource(R.string.map_voice_search_cd),
                                 tint  = if (isListening) MaterialTheme.colorScheme.error
                                         else MaterialTheme.colorScheme.primary,
                                 modifier = Modifier
@@ -924,6 +946,47 @@ fun HomeMapScreen(
                                     .then(if (isListening) Modifier.scale(pulse) else Modifier),
                             )
                         }
+                    }
+                }
+            }
+
+            // ── Region pill — shown below search bar when not searching ──────
+            if (!uiState.searchActive) {
+                Spacer(Modifier.height(6.dp))
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .shadow(2.dp, RoundedCornerShape(50))
+                        .clickable { navController.navigate(Routes.SETTINGS) },
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (uiState.autoDetectRegion) Icons.Default.MyLocation else Icons.Default.Map,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            text = uiState.activeRegion?.regionName ?: "Settings",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        )
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = stringResource(R.string.map_switch_region_cd),
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
@@ -950,8 +1013,8 @@ fun HomeMapScreen(
                         if (uiState.searchQuery.isEmpty()) {
                             // Empty state — quick actions
                             ListItem(
-                                headlineContent = { Text("Plan a full trip", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium) },
-                                supportingContent = { Text("Set origin, destination & time") },
+                                headlineContent = { Text(stringResource(R.string.map_plan_full_trip), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium) },
+                                supportingContent = { Text(stringResource(R.string.map_plan_full_trip_subtitle)) },
                                 leadingContent = { Icon(Icons.Default.Directions, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                                 modifier = Modifier.clickable { viewModel.setSearchActive(false); navController.navigate(Routes.PLAN_PLAIN) },
                             )
@@ -963,7 +1026,7 @@ fun HomeMapScreen(
                             // ── Routes section ───────────────────────────────
                             if (routeResults.isNotEmpty()) {
                                 Text(
-                                    "ROUTES",
+                                    stringResource(R.string.map_section_routes),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -972,8 +1035,8 @@ fun HomeMapScreen(
                                     val route = result.route
                                     val displayName = when {
                                         route.shortName.isNotBlank() && route.longName.isNotBlank() ->
-                                            "Route ${route.shortName} · ${route.longName}"
-                                        route.shortName.isNotBlank() -> "Route ${route.shortName}"
+                                            stringResource(R.string.map_route_label_full, route.shortName, route.longName)
+                                        route.shortName.isNotBlank() -> stringResource(R.string.map_route_label_short, route.shortName)
                                         route.longName.isNotBlank()  -> route.longName
                                         else                         -> route.id
                                     }
@@ -1002,7 +1065,7 @@ fun HomeMapScreen(
                                         trailingContent = {
                                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                                 Icon(Icons.Default.Map, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                                                Text("Show", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                                Text(stringResource(R.string.action_show), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                             }
                                         },
                                         modifier = Modifier.clickable { viewModel.selectRoute(route) },
@@ -1014,7 +1077,7 @@ fun HomeMapScreen(
                             // ── Nearby stops section ─────────────────────────
                             if (stopResults.isNotEmpty()) {
                                 Text(
-                                    "NEARBY STOPS",
+                                    stringResource(R.string.map_nearby_stops),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -1023,7 +1086,7 @@ fun HomeMapScreen(
                                     val stop = result.stop
                                     ListItem(
                                         headlineContent = { Text(stop.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium) },
-                                        supportingContent = { Text("${stop.routeIds.size} route${if (stop.routeIds.size != 1) "s" else ""}", style = MaterialTheme.typography.bodySmall) },
+                                        supportingContent = { Text(pluralStringResource(R.plurals.map_stop_route_count, stop.routeIds.size, stop.routeIds.size), style = MaterialTheme.typography.bodySmall) },
                                         leadingContent = {
                                             Box(
                                                 modifier = Modifier
@@ -1047,7 +1110,7 @@ fun HomeMapScreen(
                             // ── Places / destinations section ─────────────────
                             if (destResults.isNotEmpty()) {
                                 Text(
-                                    "DESTINATIONS",
+                                    stringResource(R.string.map_section_destinations),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -1071,7 +1134,7 @@ fun HomeMapScreen(
                                         trailingContent = {
                                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                                 Icon(Icons.Default.DirectionsTransit, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                                                Text("Plan", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                                Text(stringResource(R.string.action_plan), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                             }
                                         },
                                         modifier = Modifier.clickable {
@@ -1085,7 +1148,7 @@ fun HomeMapScreen(
 
                             if (uiState.searchResults.isEmpty() && !uiState.searchLoading) {
                                 Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                                    Text("No results for \"${uiState.searchQuery}\"", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(stringResource(R.string.map_no_results, uiState.searchQuery), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
@@ -1097,22 +1160,75 @@ fun HomeMapScreen(
             val routeHighlight = uiState.routeHighlight
             if (routeHighlight != null && !uiState.searchActive) {
                 Spacer(Modifier.height(6.dp))
-                val label = buildString {
-                    append("Route ")
-                    if (routeHighlight.shortName.isNotBlank()) append(routeHighlight.shortName)
-                    if (routeHighlight.longName.isNotBlank()) { append(" · "); append(routeHighlight.longName) }
-                }
+                val label = if (routeHighlight.longName.isNotBlank()) {
+                    stringResource(R.string.map_route_label_full, routeHighlight.shortName, routeHighlight.longName)
+                } else if (routeHighlight.shortName.isNotBlank()) {
+                    stringResource(R.string.map_route_label_short, routeHighlight.shortName)
+                } else ""
                 FilterChip(
                     selected = true,
                     onClick = { viewModel.clearRouteHighlight() },
                     label = { Text(label, style = MaterialTheme.typography.labelMedium) },
-                    trailingIcon = { Icon(Icons.Default.Close, contentDescription = "Clear route filter", modifier = Modifier.size(16.dp)) },
+                    trailingIcon = { Icon(Icons.Default.Close, contentDescription = stringResource(R.string.map_clear_route_filter_cd), modifier = Modifier.size(16.dp)) },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                         selectedLabelColor     = MaterialTheme.colorScheme.onPrimaryContainer,
                         selectedTrailingIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
                     ),
                 )
+            }
+
+            // ── Suggested region banner ──────────────────────────────────────
+            val suggestedRegion = uiState.suggestedRegion
+            if (suggestedRegion != null && !uiState.searchActive) {
+                Spacer(Modifier.height(6.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shadowElevation = 2.dp,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.LocationOn,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            stringResource(R.string.map_region_suggestion, suggestedRegion.regionName),
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                        TextButton(
+                            onClick = { viewModel.acceptRegionSuggestion() },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        ) {
+                            Text(
+                                stringResource(R.string.map_region_suggestion_switch),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                        }
+                        IconButton(
+                            onClick = { viewModel.dismissRegionSuggestion() },
+                            modifier = Modifier.size(24.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = stringResource(R.string.action_close),
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -1164,7 +1280,7 @@ fun HomeMapScreen(
                     }
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
-                            if (hasReminder) "Reminder set" else "Set a reminder",
+                            if (hasReminder) stringResource(R.string.reminder_set_snack) else stringResource(R.string.reminder_set_title),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -1227,7 +1343,7 @@ fun HomeMapScreen(
                     ) {
                         Icon(Icons.Default.NotificationsOff, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Cancel reminder")
+                        Text(stringResource(R.string.reminder_cancel))
                     }
                 } else {
                     // ── Set flow ─────────────────────────────────────────────
@@ -1254,7 +1370,7 @@ fun HomeMapScreen(
                                     modifier = Modifier.size(20.dp),
                                 )
                                 Text(
-                                    "The bus arrives too soon to set a reminder.",
+                                    stringResource(R.string.reminder_too_soon),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onErrorContainer,
                                 )
@@ -1262,7 +1378,7 @@ fun HomeMapScreen(
                         }
                     } else {
                         Text(
-                            "Notify me before arrival",
+                            stringResource(R.string.reminder_notify_before),
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1370,12 +1486,12 @@ private fun StopMiniCard(
             // Arrival summary chip
             when {
                 loading -> Text(
-                    "Loading\u2026",
+                    stringResource(R.string.route_loading_trip),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 arrivals.isEmpty() -> Text(
-                    "No upcoming services",
+                    stringResource(R.string.route_no_upcoming),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1405,7 +1521,7 @@ private fun StopMiniCard(
             ) {
                 when {
                     nextMinutes <= 0 -> Text(
-                        "Now",
+                        stringResource(R.string.status_now),
                         style = MaterialTheme.typography.headlineSmall,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold,
@@ -1418,7 +1534,7 @@ private fun StopMiniCard(
                             fontWeight = FontWeight.Bold,
                         )
                         Text(
-                            "MIN",
+                            stringResource(R.string.arrival_min_label),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             letterSpacing = 1.sp,
@@ -1432,7 +1548,7 @@ private fun StopMiniCard(
         IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
             Icon(
                 Icons.Default.Close,
-                contentDescription = "Close",
+                contentDescription = stringResource(R.string.action_close),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(18.dp),
             )
@@ -1490,7 +1606,7 @@ fun StopBottomSheet(
                 }
                 if (stop.routeIds.isNotEmpty()) {
                     Text(
-                        "${stop.routeIds.size} route${if (stop.routeIds.size == 1) "" else "s"}",
+                        pluralStringResource(R.plurals.map_stop_route_count, stop.routeIds.size, stop.routeIds.size),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -1499,8 +1615,8 @@ fun StopBottomSheet(
             // Centre map on this stop
             IconButton(onClick = onCenterOnStop) {
                 Icon(
-                    Icons.Default.MyLocation,
-                    contentDescription = "Centre map on stop",
+                    Icons.Default.NearMe,
+                    contentDescription = stringResource(R.string.map_centre_on_stop_cd),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -1508,7 +1624,7 @@ fun StopBottomSheet(
             IconButton(onClick = onToggleSave) {
                 Icon(
                     if (isSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                    contentDescription = if (isSaved) "Remove saved stop" else "Save stop",
+                    contentDescription = if (isSaved) stringResource(R.string.stop_remove_saved) else stringResource(R.string.stop_save),
                     tint = if (isSaved) MaterialTheme.colorScheme.primary
                            else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1517,7 +1633,7 @@ fun StopBottomSheet(
             IconButton(onClick = onMinimize) {
                 Icon(
                     Icons.Default.KeyboardArrowDown,
-                    contentDescription = "Minimize",
+                    contentDescription = stringResource(R.string.map_minimize_cd),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -1531,10 +1647,10 @@ fun StopBottomSheet(
             val elapsed = ((nowMs - ts) / 1000L).coerceAtLeast(0L).toInt()
             val m = elapsed / 60; val s = elapsed % 60
             when {
-                elapsed < 5  -> "Just updated"
-                m == 0       -> "Updated ${s}s ago"
-                s == 0       -> "Updated ${m} min ago"
-                else         -> "Updated ${m} min ${s}s ago"
+                elapsed < 5  -> stringResource(R.string.map_just_updated)
+                m == 0       -> stringResource(R.string.map_updated_s, s)
+                s == 0       -> stringResource(R.string.map_updated_m, m)
+                else         -> stringResource(R.string.map_updated_ms, m, s)
             }
         }
         Row(
@@ -1546,7 +1662,7 @@ fun StopBottomSheet(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                "Arrivals",
+                stringResource(R.string.map_arrivals),
                 style = MaterialTheme.typography.headlineMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
@@ -1612,7 +1728,7 @@ fun StopBottomSheet(
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "No services in the next 6 hours",
+                    stringResource(R.string.route_no_services),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1654,13 +1770,13 @@ fun StopBottomSheet(
                     }
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            "Timetable mode",
+                            stringResource(R.string.map_timetable_mode),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
-                            "No live vehicles are being tracked for this stop right now. Showing scheduled departures.",
+                            stringResource(R.string.route_no_live_vehicles),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1690,6 +1806,15 @@ fun StopBottomSheet(
             val remaining  = (sortedArrivals.size - visibleCount).coerceAtLeast(0)
             val listState = rememberLazyListState()
 
+            // Auto-focus the fastest arrival the first time arrivals load for this stop
+            var autoFocused by remember(stop.id) { mutableStateOf(false) }
+            LaunchedEffect(arrivals) {
+                if (!autoFocused && arrivals.isNotEmpty() && pinnedTripVehicleId == null) {
+                    sortedArrivals.firstOrNull()?.let { onArrivalFocus(it) }
+                    autoFocused = true
+                }
+            }
+
             // Scroll to top when a trip is newly pinned (pinned trip is at index 0)
             LaunchedEffect(pinnedTripVehicleId) {
                 if (pinnedTripVehicleId != null) {
@@ -1706,6 +1831,9 @@ fun StopBottomSheet(
             }
 
             Box {
+                val distinctAgencies = remember(arrivals) {
+                    arrivals.map { it.agencyName }.filter { it.isNotBlank() }.distinct()
+                }
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.heightIn(max = 280.dp),
@@ -1728,6 +1856,7 @@ fun StopBottomSheet(
                             onViewDetails = { onArrivalDetails(arrival) },
                             onUnpin = if (pinnedTripVehicleId != null && arrival.vehicleId == pinnedTripVehicleId)
                                 onUnpinTrip else null,
+                            showAgencyLabel = distinctAgencies.size > 1,
                             modifier = Modifier.animateItem(),
                         )
                     }
@@ -1774,14 +1903,14 @@ fun StopBottomSheet(
                         )
                         Spacer(Modifier.width(4.dp))
                         Text(
-                            "Show ${minOf(remaining, 3)} more",
+                            stringResource(R.string.map_show_more, minOf(remaining, 3)),
                             style = MaterialTheme.typography.labelMedium,
                         )
                     }
                 } else {
                     // All arrivals shown — subtle "all caught up" label
                     Text(
-                        "All ${sortedArrivals.size} arrivals shown",
+                        stringResource(R.string.map_all_arrivals_shown, sortedArrivals.size),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 8.dp),
@@ -1794,14 +1923,14 @@ fun StopBottomSheet(
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                 ) {
                     Text(
-                        "Stop info",
+                        stringResource(R.string.map_stop_info),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.width(2.dp))
                     Icon(
                         Icons.Default.OpenInNew,
-                        contentDescription = "Open stop details",
+                        contentDescription = stringResource(R.string.map_open_stop_details_cd),
                         modifier = Modifier.size(13.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1821,9 +1950,10 @@ fun ArrivalRow(
     hasReminder: Boolean = false,
     sidecarEnabled: Boolean = false,
     onClick: () -> Unit,
-    onLongClick: () -> Unit = {},
+    onLongClick: (() -> Unit)? = null,
     onViewDetails: () -> Unit,
     onUnpin: (() -> Unit)? = null,
+    showAgencyLabel: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val statusColor = when (arrival.status) {
@@ -1844,39 +1974,74 @@ fun ArrivalRow(
         else -> statusColor
     }
 
+    val untilFmt = stringResource(R.string.arrival_until)
     val headwayUntil = arrival.headwayEndTime?.let {
         val fmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-        " until " + fmt.format(java.util.Date(it))
+        String.format(untilFmt, fmt.format(java.util.Date(it)))
     } ?: ""
     val statusLabel = when {
-        missed -> "Already departed"
+        missed -> stringResource(R.string.status_already_departed)
         arrival.isHeadway && !arrival.predicted ->
-            if (headwayMins != null) "Every ~$headwayMins min$headwayUntil" else null
+            if (headwayMins != null) stringResource(R.string.status_headway_every, headwayMins ?: 0, headwayUntil) else null
         arrival.isHeadway && arrival.predicted ->
             when (arrival.status) {
-                ArrivalStatus.ON_TIME -> "On Time · ~$headwayMins min$headwayUntil"
-                ArrivalStatus.DELAYED -> "Delayed · ~$headwayMins min$headwayUntil"
-                ArrivalStatus.EARLY   -> "Early · ~$headwayMins min$headwayUntil"
-                else -> if (headwayMins != null) "Every ~$headwayMins min$headwayUntil" else null
+                ArrivalStatus.ON_TIME -> stringResource(R.string.status_headway_on_time, headwayMins ?: 0, headwayUntil)
+                ArrivalStatus.DELAYED -> stringResource(R.string.status_headway_delayed, headwayMins ?: 0, headwayUntil)
+                ArrivalStatus.EARLY   -> stringResource(R.string.status_headway_early, headwayMins ?: 0, headwayUntil)
+                else -> if (headwayMins != null) stringResource(R.string.status_headway_every, headwayMins ?: 0, headwayUntil) else null
             }
-        arrival.status == ArrivalStatus.ON_TIME   -> "On Time"
-        arrival.status == ArrivalStatus.DELAYED   -> "Delayed"
-        arrival.status == ArrivalStatus.EARLY     -> "Early"
-        arrival.status == ArrivalStatus.SCHEDULED -> "Scheduled"
+        arrival.status == ArrivalStatus.ON_TIME   -> stringResource(R.string.status_on_time)
+        arrival.status == ArrivalStatus.DELAYED   -> stringResource(R.string.status_delayed)
+        arrival.status == ArrivalStatus.EARLY     -> stringResource(R.string.status_early)
+        arrival.status == ArrivalStatus.SCHEDULED -> stringResource(R.string.status_scheduled)
         else -> null
     }
 
     // For selected rows, background and border are driven by the bus status colour
     val selectionColor = if (missed) MaterialTheme.colorScheme.onSurfaceVariant else statusColor
 
+    // Brand chip colours — derived from GTFS route colour metadata
+    val brandChipBg: Color? = arrival.routeColor?.let {
+        runCatching { Color(android.graphics.Color.parseColor("#$it")) }.getOrNull()
+    }
+    val brandChipFg: Color? = arrival.routeTextColor?.let {
+        runCatching { Color(android.graphics.Color.parseColor("#$it")) }.getOrNull()
+    } ?: brandChipBg?.let { bg ->
+        val lum = bg.red * 0.299f + bg.green * 0.587f + bg.blue * 0.114f
+        if (lum < 0.5f) Color.White else Color(0xFF1A1A1F.toInt())
+    }
+
+    // Live dot animation — pulsing when real-time data available
+    val liveDotScale by if (arrival.predicted && !missed) {
+        rememberInfiniteTransition(label = "liveDot").animateFloat(
+            initialValue = 0.6f, targetValue = 1.0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(900, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "liveDotScale",
+        )
+    } else {
+        remember { mutableStateOf(1.0f) }
+    }
+    val liveDotAlpha by if (arrival.predicted && !missed) {
+        rememberInfiniteTransition(label = "liveDotAlpha").animateFloat(
+            initialValue = 0.35f, targetValue = 1.0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(900, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "liveDotAlphaVal",
+        )
+    } else {
+        remember { mutableStateOf(0.0f) }
+    }
+
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
-            .combinedClickable(
-                onClick = if (isPinned && onUnpin != null) onUnpin else onClick,
-                onLongClick = if (sidecarEnabled) onLongClick else null,
-            ),
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
         color = if (isSelected)
             selectionColor.copy(alpha = 0.10f)
@@ -1910,10 +2075,28 @@ fun ArrivalRow(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    // Pin icon — tappable to unpin the focused trip
+                    if (isPinned) {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                                .then(if (onUnpin != null) Modifier.clickable { onUnpin() } else Modifier),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Default.PushPin,
+                                contentDescription = stringResource(R.string.arrival_unpin_cd),
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
+                    }
                     Surface(
                         shape = RoundedCornerShape(50),
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+                        color = brandChipBg ?: MaterialTheme.colorScheme.primaryContainer,
+                        border = if (brandChipBg == null) BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)) else null,
                         modifier = if (isLongRouteName) Modifier else Modifier.widthIn(max = 120.dp),
                     ) {
                         Row(
@@ -1921,18 +2104,19 @@ fun ArrivalRow(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
+                            val chipFg = brandChipFg ?: MaterialTheme.colorScheme.onPrimaryContainer
                             Icon(
                                 Icons.Default.DirectionsBus,
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                tint = chipFg,
                             )
                             if (!isLongRouteName) {
                                 Text(
                                     arrival.routeShortName,
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    color = chipFg,
                                     maxLines = 1,
                                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                 )
@@ -1974,6 +2158,14 @@ fun ArrivalRow(
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     )
                 }
+                // Agency label — shown when multiple agencies serve the stop
+                if (showAgencyLabel && arrival.agencyName.isNotBlank()) {
+                    Text(
+                        arrival.agencyName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    )
+                }
                 // Row 3: status label (only for missed or headway trips)
                 if (statusLabel != null && (missed || arrival.isHeadway)) {
                     Text(
@@ -1987,15 +2179,19 @@ fun ArrivalRow(
                 if (!arrival.isHeadway && arrival.scheduledArrivalTime > 0) {
                     val schedFmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
                     val schedStr = schedFmt.format(java.util.Date(arrival.scheduledArrivalTime))
+                    val notRealTimeStr = stringResource(R.string.arrival_not_realtime)
+                    val minLateStr = stringResource(R.string.arrival_min_late, arrival.deviationMinutes)
+                    val minEarlyStr = stringResource(R.string.arrival_min_early, kotlin.math.abs(arrival.deviationMinutes))
+                    val onTimeStr = stringResource(R.string.arrival_on_time_note)
                     val deviationText = when {
                         !arrival.predicted ->
-                            " · not real-time"
+                            " · $notRealTimeStr"
                         arrival.predicted && arrival.status == ArrivalStatus.DELAYED && arrival.deviationMinutes > 0 ->
-                            " · +${arrival.deviationMinutes} min late"
+                            " · $minLateStr"
                         arrival.predicted && arrival.status == ArrivalStatus.EARLY && arrival.deviationMinutes != 0 ->
-                            " · ${kotlin.math.abs(arrival.deviationMinutes)} min early"
+                            " · $minEarlyStr"
                         arrival.predicted && arrival.status == ArrivalStatus.ON_TIME ->
-                            " · arrives on time"
+                            " · $onTimeStr"
                         else -> ""
                     }
                     Row(
@@ -2003,7 +2199,7 @@ fun ArrivalRow(
                         horizontalArrangement = Arrangement.spacedBy(0.dp),
                     ) {
                         Text(
-                            "Sched $schedStr",
+                            stringResource(R.string.route_sched_prefix, schedStr),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -2025,12 +2221,12 @@ fun ArrivalRow(
                     ) {
                         Icon(
                             Icons.Default.NotificationsActive,
-                            contentDescription = "Reminder set",
+                            contentDescription = stringResource(R.string.reminder_set_snack),
                             modifier = Modifier.size(12.dp),
                             tint = MaterialTheme.colorScheme.primary,
                         )
                         Text(
-                            "Reminder set",
+                            stringResource(R.string.reminder_set_snack),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Medium,
@@ -2057,12 +2253,23 @@ fun ArrivalRow(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
+                        // Live dot — pulsing circle above the time number for real-time arrivals
+                        if (arrival.predicted && !missed) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .scale(liveDotScale)
+                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .background(badgeColor.copy(alpha = liveDotAlpha)),
+                            )
+                            Spacer(Modifier.height(4.dp))
+                        }
                         if (missed) {
                             // Show how long ago the bus left in plain language
                             val agoMin = -minutes
                             if (agoMin == 0) {
                                 Text(
-                                    "Just now",
+                                    stringResource(R.string.status_just_now),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = badgeColor,
                                     fontWeight = FontWeight.Bold,
@@ -2077,7 +2284,7 @@ fun ArrivalRow(
                                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                 )
                                 Text(
-                                    "ago",
+                                    stringResource(R.string.status_ago),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = badgeColor.copy(alpha = 0.75f),
                                     letterSpacing = 1.sp,
@@ -2094,7 +2301,7 @@ fun ArrivalRow(
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                             )
                             Text(
-                                "MIN",
+                                stringResource(R.string.arrival_min_label),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = badgeColor.copy(alpha = 0.75f),
                                 letterSpacing = 1.sp,
@@ -2102,7 +2309,7 @@ fun ArrivalRow(
                             )
                         } else if (minutes == 0) {
                             Text(
-                                "NOW",
+                                stringResource(R.string.status_now),
                                 style = MaterialTheme.typography.titleLarge,
                                 color = badgeColor,
                                 fontWeight = FontWeight.Bold,
@@ -2120,7 +2327,7 @@ fun ArrivalRow(
                                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                 )
                                 Text(
-                                    "MIN",
+                                    stringResource(R.string.arrival_min_label),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = badgeColor.copy(alpha = 0.75f),
                                     letterSpacing = 1.sp,
@@ -2143,6 +2350,21 @@ fun ArrivalRow(
                                 )
                             }
                         }
+                        // Bell indicator — tappable to open reminder sheet
+                        if (sidecarEnabled) {
+                            Spacer(Modifier.height(3.dp))
+                            Icon(
+                                imageVector = if (hasReminder) Icons.Default.Notifications else Icons.Outlined.NotificationsNone,
+                                contentDescription = if (hasReminder) stringResource(R.string.reminder_set_snack) else stringResource(R.string.reminder_set_title),
+                                modifier = Modifier
+                                    .size(12.dp)
+                                    .clickable { onLongClick?.invoke() },
+                                tint = if (hasReminder)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                            )
+                        }
                     }
                 }
                 // Route details button — vertical divider + chevron
@@ -2159,7 +2381,7 @@ fun ArrivalRow(
                 ) {
                     Icon(
                         Icons.Default.KeyboardArrowRight,
-                        contentDescription = "View route details",
+                        contentDescription = stringResource(R.string.map_view_route_details_cd),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp),
                     )

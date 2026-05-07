@@ -132,6 +132,16 @@ class ObaRepository(
             // Build routeId → TransitType from references
             val routeTypeMap = resp.data().references().routes()
                 .associate { it.id() to TransitType.fromGtfsType(it.type().toInt()) }
+            val routeColorMap = resp.data().references().routes()
+                .associate { it.id() to it.color() }
+            val routeTextColorMap = resp.data().references().routes()
+                .associate { it.id() to it.textColor() }
+            val agencyNameMap = run {
+                val agencies = resp.data().references().agencies()
+                    .associate { it.id() to (it.name() ?: "") }
+                resp.data().references().routes()
+                    .associate { it.id() to (agencies[it.agencyId()] ?: "") }
+            }
 
             arrivals.map { e ->
                 val scheduledMs = e.scheduledArrivalTime()
@@ -175,6 +185,9 @@ class ObaRepository(
                     serviceDate = e.serviceDate(),
                     stopSequence = e.stopSequence().toInt(),
                     transitType = routeTypeMap[e.routeId()] ?: TransitType.BUS,
+                    routeColor = routeColorMap[e.routeId()]?.takeIf { it.isNotBlank() },
+                    routeTextColor = routeTextColorMap[e.routeId()]?.takeIf { it.isNotBlank() },
+                    agencyName = agencyNameMap[e.routeId()] ?: "",
                 )
             }
         }.getOrElse { emptyList() }
