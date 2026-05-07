@@ -84,6 +84,16 @@ APP_NAME=Kelantan Bus
 APP_PRIMARY_COLOR=#C62828
 APP_SECONDARY_COLOR=#E53935
 APP_TERTIARY_COLOR=#37474F
+
+# ── Service URLs (optional — defaults shown) ──────────────────────────────────
+OBA_BASE_URL=https://api.kelantanbus.com
+GEOCODING_BASE_URL=https://geocode.kelantanbus.com/v1
+REGIONS_URL=https://cdn.unrealasia.net/onebusaway/regions.json
+
+# ── Social / support URLs (optional — defaults shown) ─────────────────────────
+FACEBOOK_PAGE_URL=https://www.facebook.com/kelantanbus
+WHATSAPP_PHONE=60109141767
+STATUS_PAGE_URL=https://status.kelantanbus.com
 ```
 
 > **Security:** `ONESIGNAL_APP_ID` and `GOOGLE_MAPS_API_KEY` are validated at
@@ -114,12 +124,30 @@ source files need to be touched to produce a new brand.
 
 ### What you can change in `local.properties`
 
+**Branding**
+
 | Key | Default | Effect |
 |---|---|---|
 | `APP_NAME` | `Kelantan Bus` | Launcher label, About screen, onboarding, notification titles |
 | `APP_PRIMARY_COLOR` | `#C62828` | Buttons, toolbar, FAB, active nav icon |
 | `APP_SECONDARY_COLOR` | `#E53935` | Accent chips, live-status badges, active tab |
 | `APP_TERTIARY_COLOR` | `#37474F` | Supporting text, icon tints |
+
+**Service URLs**
+
+| Key | Default | Effect |
+|---|---|---|
+| `OBA_BASE_URL` | `https://api.kelantanbus.com` | Base URL for all OneBusAway API calls |
+| `GEOCODING_BASE_URL` | `https://geocode.kelantanbus.com/v1` | Base URL for the Photon geocoding API |
+| `REGIONS_URL` | `https://cdn.unrealasia.net/onebusaway/regions.json` | OBA regions manifest URL |
+
+**Social / support URLs**
+
+| Key | Default | Effect |
+|---|---|---|
+| `FACEBOOK_PAGE_URL` | `https://www.facebook.com/kelantanbus` | Facebook link in the Feedback screen |
+| `WHATSAPP_PHONE` | `60109141767` | WhatsApp number (E.164 without `+`) in the Feedback screen |
+| `STATUS_PAGE_URL` | `https://status.kelantanbus.com` | Service-status link in the More screen |
 
 ### What you override with flavor resource files
 
@@ -149,7 +177,7 @@ shadows the equivalent file in `app/src/main/res/`:
 3. Optionally add `app/src/johor/res/raw/alert.wav` for a custom notification
    sound.
 
-4. Set your branding and API keys in `local.properties`:
+4. Set your branding, API keys, and service URLs in `local.properties`:
 
    ```properties
    APP_NAME=Johor Bus
@@ -158,6 +186,12 @@ shadows the equivalent file in `app/src/main/res/`:
    APP_TERTIARY_COLOR=#1A1A2E
    ONESIGNAL_APP_ID=<johor onesignal app id>
    GOOGLE_MAPS_API_KEY=<johor maps api key>
+   OBA_BASE_URL=https://api.johorbus.com
+   GEOCODING_BASE_URL=https://geocode.johorbus.com/v1
+   REGIONS_URL=https://cdn.example.com/onebusaway/regions.json
+   FACEBOOK_PAGE_URL=https://www.facebook.com/johorbus
+   WHATSAPP_PHONE=601XXXXXXXXX
+   STATUS_PAGE_URL=https://status.johorbus.com
    ```
 
 5. Build:

@@ -77,6 +77,6 @@ class GeocodingRepository(private val http: OkHttpClient = OkHttpClient()) {
     private data class Props(val label: String?, val name: String?)
 
     companion object {
-        const val BASE = "https://geocode.kelantanbus.com/v1"
+        val BASE get() = com.taqisystems.bus.android.BuildConfig.GEOCODING_BASE_URL
     }
 }

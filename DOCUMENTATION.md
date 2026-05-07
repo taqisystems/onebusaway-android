@@ -779,6 +779,16 @@ APP_NAME=Kelantan Bus
 APP_PRIMARY_COLOR=#C62828
 APP_SECONDARY_COLOR=#E53935
 APP_TERTIARY_COLOR=#37474F
+
+# ── Service URLs (see §7.2) ───────────────────────────────────────────────────
+OBA_BASE_URL=https://api.kelantanbus.com
+GEOCODING_BASE_URL=https://geocode.kelantanbus.com/v1
+REGIONS_URL=https://cdn.unrealasia.net/onebusaway/regions.json
+
+# ── Social / support URLs (see §7.2) ──────────────────────────────────────────
+FACEBOOK_PAGE_URL=https://www.facebook.com/kelantanbus
+WHATSAPP_PHONE=60109141767
+STATUS_PAGE_URL=https://status.kelantanbus.com
 ```
 
 All credential properties are validated at Gradle sync time:
@@ -838,6 +848,33 @@ buildConfigField("String", "BRAND_SECONDARY",  "\"$brandSecondary\"")
 buildConfigField("String", "BRAND_TERTIARY",   "\"$brandTertiary\"")
 ```
 
+#### What can be overridden in `local.properties` (service URLs)
+
+| Key | Default | Controls |
+|---|---|---|
+| `OBA_BASE_URL` | `https://api.kelantanbus.com` | Base URL for all OneBusAway API calls (`ObaRepository`) |
+| `GEOCODING_BASE_URL` | `https://geocode.kelantanbus.com/v1` | Base URL for the Photon geocoding API (`GeocodingRepository`) |
+| `REGIONS_URL` | `https://cdn.unrealasia.net/onebusaway/regions.json` | URL for the OBA regions manifest (`RegionsRepository`) |
+
+#### What can be overridden in `local.properties` (social / support URLs)
+
+| Key | Default | Controls |
+|---|---|---|
+| `FACEBOOK_PAGE_URL` | `https://www.facebook.com/kelantanbus` | Facebook link in the Feedback screen |
+| `WHATSAPP_PHONE` | `60109141767` | WhatsApp number (E.164 without `+`) in the Feedback screen |
+| `STATUS_PAGE_URL` | `https://status.kelantanbus.com` | Service-status link in the More screen |
+
+All six URL values are compiled into `BuildConfig` fields at build time:
+
+```kotlin
+buildConfigField("String", "OBA_BASE_URL",       "\"$obaBaseUrl\"")
+buildConfigField("String", "GEOCODING_BASE_URL", "\"$geocodingBaseUrl\"")
+buildConfigField("String", "REGIONS_URL",        "\"$regionsUrl\"")
+buildConfigField("String", "FACEBOOK_PAGE_URL",  "\"$facebookPageUrl\"")
+buildConfigField("String", "WHATSAPP_PHONE",     "\"$whatsappPhone\"")
+buildConfigField("String", "STATUS_PAGE_URL",    "\"$statusPageUrl\"")
+```
+
 #### What is overridden via flavor resource directories (binary assets)
 
 Place files in `app/src/<flavourName>/res/` to shadow the equivalent file in
@@ -862,12 +899,18 @@ Place files in `app/src/<flavourName>/res/` to shadow the equivalent file in
    ```
 2. Create `app/src/johor/res/drawable/logo.png` and mipmap icons.
 3. Add `app/src/johor/res/raw/alert.wav` if a custom sound is needed.
-4. Set branding in your `local.properties`:
+4. Set branding and service URLs in your `local.properties`:
    ```properties
    APP_NAME=Johor Bus
    APP_PRIMARY_COLOR=#0057B8
    APP_SECONDARY_COLOR=#003F84
    APP_TERTIARY_COLOR=#1A1A2E
+   OBA_BASE_URL=https://api.johorbus.com
+   GEOCODING_BASE_URL=https://geocode.johorbus.com/v1
+   REGIONS_URL=https://cdn.example.com/onebusaway/regions.json
+   FACEBOOK_PAGE_URL=https://www.facebook.com/johorbus
+   WHATSAPP_PHONE=601XXXXXXXXX
+   STATUS_PAGE_URL=https://status.johorbus.com
    ```
 5. Add your API keys to `local.properties`.
 6. Build with `./gradlew assembleJohorRelease`.

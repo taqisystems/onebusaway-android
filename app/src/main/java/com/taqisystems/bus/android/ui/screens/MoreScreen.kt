@@ -147,7 +147,7 @@ fun MoreScreen(navController: NavController) {
                         title       = stringResource(R.string.more_status_title),
                         subtitle    = stringResource(R.string.more_status_subtitle),
                         showDivider = true,
-                    ) { uriHandler.openUri("https://status.kelantanbus.com") }
+                    ) { uriHandler.openUri(com.taqisystems.bus.android.BuildConfig.STATUS_PAGE_URL) }
 
                     MenuRow(
                         icon        = Icons.Default.Feedback,

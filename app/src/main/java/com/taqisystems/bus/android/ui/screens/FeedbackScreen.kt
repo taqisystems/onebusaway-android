@@ -52,8 +52,8 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 
 // ── Contact details — update these as needed ──────────────────────────────────
-private const val WHATSAPP_PHONE   = "60109141767"
-private const val FACEBOOK_PAGE_URL = "https://www.facebook.com/kelantanbus"
+private val WHATSAPP_PHONE    get() = com.taqisystems.bus.android.BuildConfig.WHATSAPP_PHONE
+private val FACEBOOK_PAGE_URL get() = com.taqisystems.bus.android.BuildConfig.FACEBOOK_PAGE_URL
 
 private val WHATSAPP_GREEN  = Color(0xFF25D366)
 private val FACEBOOK_BLUE   = Color(0xFF1877F2)

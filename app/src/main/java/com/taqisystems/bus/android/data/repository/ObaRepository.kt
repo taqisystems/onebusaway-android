@@ -501,7 +501,7 @@ class ObaRepository(
     }
 
     companion object {
-        const val DEFAULT_BASE_URL = "https://api.kelantanbus.com"
+        val DEFAULT_BASE_URL get() = com.taqisystems.bus.android.BuildConfig.OBA_BASE_URL
         const val DEFAULT_API_KEY = "v1_BktoDJ2gJlu6nLM6LsT9H8IUbWc=cGF1bGN3YXR0c0BnbWFpbC5jb20="
 
         /** Google encoded-polyline decoder. */

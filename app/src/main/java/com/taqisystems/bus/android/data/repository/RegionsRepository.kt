@@ -87,6 +87,6 @@ class RegionsRepository(
         }
 
     companion object {
-        const val REGIONS_URL = "https://cdn.unrealasia.net/onebusaway/regions.json"
+        val REGIONS_URL get() = com.taqisystems.bus.android.BuildConfig.REGIONS_URL
     }
 }
