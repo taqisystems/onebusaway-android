@@ -1,0 +1,124 @@
+<!-- Empty state: reminders -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+
+    <!-- Background circle -->
+    <path
+        android:fillColor="?attr/colorSurfaceVariant"
+        android:pathData="M60,60 m-52,0 a52,52 0 1,0 104,0 a52,52 0 1,0 -104,0" />
+
+    <!-- Clock face fill -->
+    <path
+        android:fillColor="?attr/colorSurface"
+        android:pathData="M60,66 m-30,0 a30,30 0 1,0 60,0 a30,30 0 1,0 -60,0" />
+
+    <!-- Clock face border -->
+    <path
+        android:strokeColor="?attr/colorPrimary"
+        android:strokeWidth="2.5"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M60,66 m-30,0 a30,30 0 1,0 60,0 a30,30 0 1,0 -60,0" />
+
+    <!-- Bell bump — left -->
+    <path
+        android:fillColor="?attr/colorPrimary"
+        android:pathData="M46,38 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0" />
+
+    <!-- Bell bump — right -->
+    <path
+        android:fillColor="?attr/colorPrimary"
+        android:pathData="M74,38 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0" />
+
+    <!-- Leg — left -->
+    <path
+        android:strokeColor="?attr/colorPrimary"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M50,94 L46,101" />
+
+    <!-- Leg — right -->
+    <path
+        android:strokeColor="?attr/colorPrimary"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M70,94 L74,101" />
+
+    <!-- Tick — 12 -->
+    <path
+        android:strokeColor="?attr/colorOutlineVariant"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M60,38 L60,43" />
+
+    <!-- Tick — 3 -->
+    <path
+        android:strokeColor="?attr/colorOutlineVariant"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M88,66 L83,66" />
+
+    <!-- Tick — 6 -->
+    <path
+        android:strokeColor="?attr/colorOutlineVariant"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M60,94 L60,89" />
+
+    <!-- Tick — 9 -->
+    <path
+        android:strokeColor="?attr/colorOutlineVariant"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M32,66 L37,66" />
+
+    <!-- Hour hand → 8 o'clock -->
+    <path
+        android:strokeColor="?attr/colorPrimary"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M60,66 L46,74" />
+
+    <!-- Minute hand → 4 o'clock -->
+    <path
+        android:strokeColor="?attr/colorPrimary"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M60,66 L79,77" />
+
+    <!-- Centre dot -->
+    <path
+        android:fillColor="?attr/colorPrimary"
+        android:pathData="M60,66 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+
+    <!-- Z — large -->
+    <path
+        android:strokeColor="?attr/colorPrimary"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:alpha="0.7"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M84,38 L93,38 L84,47 L93,47" />
+
+    <!-- Z — small -->
+    <path
+        android:strokeColor="?attr/colorPrimary"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:alpha="0.4"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M90,26 L97,26 L90,33 L97,33" />
+
+</vector>

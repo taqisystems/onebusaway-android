@@ -22,12 +22,63 @@ android {
         versionName = "3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // ── Push notifications ──────────────────────────────────────────────
         val oneSignalAppId = localProps.getProperty("ONESIGNAL_APP_ID")
             ?: error("ONESIGNAL_APP_ID not set in local.properties")
         buildConfigField("String", "ONESIGNAL_APP_ID", "\"$oneSignalAppId\"")
+
+        // ── Maps ────────────────────────────────────────────────────────────
         val googleMapsApiKey = localProps.getProperty("GOOGLE_MAPS_API_KEY")
             ?: error("GOOGLE_MAPS_API_KEY not set in local.properties")
         manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = googleMapsApiKey
+
+        // ── OBA user-agent ──────────────────────────────────────────────────
+        val obaAppName = localProps.getProperty("OBA_USER_AGENT")
+            ?: (project.findProperty("OBA_USER_AGENT") as String?) ?: "OneBusAway"
+        buildConfigField(
+            "String", "OBA_USER_AGENT",
+            "\"$obaAppName/$versionName ($versionCode) (Android)\""
+        )
+
+        // ── White-label branding ────────────────────────────────────────────
+        // All of these have sensible defaults so the project builds out-of-the-box
+        // even without local.properties customisation.
+        val appName = localProps.getProperty("APP_NAME") ?: "Kelantan Bus"
+        manifestPlaceholders["APP_NAME"] = appName
+        buildConfigField("String", "APP_NAME", "\"$appName\"")
+
+        val brandPrimary   = localProps.getProperty("APP_PRIMARY_COLOR")   ?: "#C62828"
+        val brandSecondary = localProps.getProperty("APP_SECONDARY_COLOR") ?: "#E53935"
+        val brandTertiary  = localProps.getProperty("APP_TERTIARY_COLOR")  ?: "#37474F"
+        buildConfigField("String", "BRAND_PRIMARY",   "\"$brandPrimary\"")
+        buildConfigField("String", "BRAND_SECONDARY", "\"$brandSecondary\"")
+        buildConfigField("String", "BRAND_TERTIARY",  "\"$brandTertiary\"")
+    }
+
+    // ── Product flavours ───────────────────────────────────────────────────────
+    // Each flavour can override res/ (logo, launcher icon, strings) without
+    // touching any Kotlin source code.
+    //
+    //   ./gradlew assembleKelantanDebug      ← current Kelantan build
+    //   ./gradlew assembleGenericDebug       ← blank white-label template
+    //
+    // A white-labeller only needs to:
+    //   1. Add a new flavour block below.
+    //   2. Create app/src/<flavourName>/res/ with their logo.png + mipmap icons.
+    //   3. Set brand colours / APP_NAME in their local.properties.
+    //   4. Supply their own API keys in local.properties.
+    flavorDimensions += "brand"
+    productFlavors {
+        create("kelantan") {
+            dimension = "brand"
+            // applicationId unchanged — uses defaultConfig value
+        }
+        create("generic") {
+            dimension = "brand"
+            applicationIdSuffix = ".generic"
+            versionNameSuffix   = "-generic"
+        }
     }
 
     signingConfigs {

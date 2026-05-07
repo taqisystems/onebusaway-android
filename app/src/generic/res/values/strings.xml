@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    ╔══════════════════════════════════════════════════════════════════════════╗
+    ║  WHITE-LABEL TEMPLATE — replace every occurrence of "Your Agency" below ║
+    ╚══════════════════════════════════════════════════════════════════════════╝
+
+    WHAT TO DO
+    ──────────
+    1. Rename this flavour or duplicate it in app/build.gradle.kts productFlavors.
+    2. Replace "Your Agency" with your agency name.
+    3. Drop your logo PNG into:
+         app/src/<flavour>/res/drawable/logo.png          ← in-app logo
+    4. Drop your launcher icons into:
+         app/src/<flavour>/res/mipmap-mdpi/ic_launcher.png
+         app/src/<flavour>/res/mipmap-hdpi/ic_launcher.png
+         app/src/<flavour>/res/mipmap-xhdpi/ic_launcher.png
+         app/src/<flavour>/res/mipmap-xxhdpi/ic_launcher.png
+         app/src/<flavour>/res/mipmap-xxxhdpi/ic_launcher.png
+         (also ic_launcher_round.png and ic_launcher_foreground.png)    5. Set your colours and name in local.properties:
+         APP_NAME=Your Agency
+         APP_PRIMARY_COLOR=#0057B8
+         APP_SECONDARY_COLOR=#003F84
+         APP_TERTIARY_COLOR=#1A1A2E
+    6. Add your own API keys:
+         ONESIGNAL_APP_ID=...
+         GOOGLE_MAPS_API_KEY=...
+    7. Build with:
+         ./gradlew assemble<FlavourName>Release
+-->
+<resources>
+    <string name="app_name">Your Agency</string>
+</resources>

@@ -1,5 +1,6 @@
 package com.taqisystems.bus.android.ui.screens
 
+import com.taqisystems.bus.android.BuildConfig
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.BorderStroke
@@ -57,7 +58,7 @@ fun FeedbackScreen(navController: NavController) {
     val context = LocalContext.current
 
     fun openWhatsApp() {
-        val msg = "Hi Kelantan Bus! I'd like to report an issue / provide feedback."
+        val msg = "Hi ${BuildConfig.APP_NAME}! I'd like to report an issue / provide feedback."
         val uri = Uri.parse("https://wa.me/$WHATSAPP_PHONE?text=${Uri.encode(msg)}")
         context.startActivity(Intent(Intent.ACTION_VIEW, uri).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -144,7 +145,7 @@ fun FeedbackScreen(navController: NavController) {
                 icon = Icons.Default.Pages,
                 iconTint = FACEBOOK_BLUE,
                 title = "Facebook Page",
-                subtitle = "Message us on the official Kelantan Bus Facebook page",
+                subtitle = "Message us on the official ${BuildConfig.APP_NAME} Facebook page",
                 buttonLabel = "Open Facebook",
                 buttonColor = FACEBOOK_BLUE,
                 onClick = ::openFacebook,

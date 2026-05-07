@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Kelantan Bus — flavor-specific string overrides.
+
+    The app launcher label is driven by local.properties → APP_NAME (manifest
+    placeholder), so android:label in AndroidManifest.xml already uses the
+    correct name without a hard-coded string resource.
+
+    Keep this file if you want @string/app_name usable from Compose
+    (e.g. stringResource(R.string.app_name) in content descriptions).
+-->
+<resources>
+    <string name="app_name">Kelantan Bus</string>
+</resources>

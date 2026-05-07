@@ -1,0 +1,78 @@
+<!-- Empty state: notifications -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+
+    <!-- Background circle -->
+    <path
+        android:fillColor="?attr/colorSurfaceVariant"
+        android:pathData="M60,60 m-52,0 a52,52 0 1,0 104,0 a52,52 0 1,0 -104,0" />
+
+    <!-- Bell dome (filled primary) -->
+    <path
+        android:fillColor="?attr/colorPrimary"
+        android:pathData="M38,74 Q38,40 60,40 Q82,40 82,74 Z" />
+
+    <!-- Bell skirt -->
+    <path
+        android:fillColor="?attr/colorPrimary"
+        android:pathData="M30,74 Q30,81 37,81 L83,81 Q90,81 90,74 Z" />
+
+    <!-- Bell stem handle -->
+    <path
+        android:fillColor="?attr/colorPrimary"
+        android:pathData="M56,32 Q56,27 60,27 Q64,27 64,32 L64,40 L56,40 Z" />
+
+    <!-- Bell clapper dot -->
+    <path
+        android:fillColor="?attr/colorPrimary"
+        android:pathData="M60,84 m-4.5,0 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0" />
+
+    <!-- Highlight gleam (gives depth) -->
+    <path
+        android:strokeColor="?attr/colorSurface"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:alpha="0.25"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M47,50 Q43,58 43,68" />
+
+    <!-- Silent arc — inner -->
+    <path
+        android:strokeColor="?attr/colorOutlineVariant"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:alpha="0.6"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M96,52 Q103,61 103,72 Q103,83 96,92" />
+
+    <!-- Silent arc — outer -->
+    <path
+        android:strokeColor="?attr/colorOutlineVariant"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:alpha="0.3"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M103,45 Q113,57 113,72 Q113,87 103,99" />
+
+    <!-- Silent arc — left inner -->
+    <path
+        android:strokeColor="?attr/colorOutlineVariant"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:alpha="0.6"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M24,52 Q17,61 17,72 Q17,83 24,92" />
+
+    <!-- Silent arc — left outer -->
+    <path
+        android:strokeColor="?attr/colorOutlineVariant"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:alpha="0.3"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M17,45 Q7,57 7,72 Q7,87 17,99" />
+
+</vector>

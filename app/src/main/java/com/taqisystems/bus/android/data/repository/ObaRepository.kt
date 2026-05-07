@@ -1,6 +1,7 @@
 package com.taqisystems.bus.android.data.repository
 
 import android.util.Log
+import com.taqisystems.bus.android.BuildConfig
 import com.taqisystems.bus.android.data.model.ArrivalStatus
 import com.taqisystems.bus.android.data.model.ObaArrival
 import com.taqisystems.bus.android.data.model.ObaRoute
@@ -41,7 +42,7 @@ class ObaRepository(
     private var client = OnebusawaySdkOkHttpClientAsync.builder()
         .apiKey(apiKey)
         .baseUrl(baseUrl)
-        .putHeader("User-Agent", "KelantanBus/3.0 (Android)")
+        .putHeader("User-Agent", BuildConfig.OBA_USER_AGENT)
         .build()
 
     // Plain OkHttp for raw endpoints not covered by the SDK
@@ -57,7 +58,7 @@ class ObaRepository(
         client = OnebusawaySdkOkHttpClientAsync.builder()
             .apiKey(apiKey)
             .baseUrl(newUrl)
-            .putHeader("User-Agent", "KelantanBus/3.0 (Android)")
+            .putHeader("User-Agent", BuildConfig.OBA_USER_AGENT)
             .build()
     }
 

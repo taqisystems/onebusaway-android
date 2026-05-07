@@ -63,7 +63,7 @@ fun AboutScreen(navController: NavController) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("About Kelantan Bus") },
+                title = { Text("About ${BuildConfig.APP_NAME}") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -92,14 +92,14 @@ fun AboutScreen(navController: NavController) {
             ) {
                 Image(
                     painter = painterResource(R.drawable.logo),
-                    contentDescription = "Kelantan Bus logo",
+                    contentDescription = "${BuildConfig.APP_NAME} logo",
                     modifier = Modifier
                         .size(88.dp)
                         .clip(RoundedCornerShape(20.dp)),
                 )
                 Spacer(Modifier.height(14.dp))
                 Text(
-                    "Kelantan Bus",
+                    BuildConfig.APP_NAME,
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                 )
@@ -159,7 +159,7 @@ fun AboutScreen(navController: NavController) {
                 SectionHeader("Open-Source Libraries")
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "Kelantan Bus is built with the following open-source libraries:",
+                    "${BuildConfig.APP_NAME} is built with the following open-source libraries:",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -7,6 +7,7 @@ import androidx.core.app.NotificationManagerCompat
 import com.taqisystems.bus.android.data.receiver.NotificationDeleteReceiver
 import com.onesignal.notifications.INotificationReceivedEvent
 import com.onesignal.notifications.INotificationServiceExtension
+import com.taqisystems.bus.android.BuildConfig
 import com.taqisystems.bus.android.KelantanBusApplication
 import com.taqisystems.bus.android.MainActivity
 import com.taqisystems.bus.android.R
@@ -39,7 +40,7 @@ class KelantanBusNotificationExtension : INotificationServiceExtension {
         val notifId = System.currentTimeMillis().toInt()
         val entry = InboxNotification(
             id             = n.notificationId?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString(),
-            title          = n.title?.takeIf { it.isNotBlank() } ?: "Kelantan Bus",
+            title          = n.title?.takeIf { it.isNotBlank() } ?: BuildConfig.APP_NAME,
             body           = n.body  ?: "",
             receivedAt     = System.currentTimeMillis(),
             isRead         = false,

@@ -1,0 +1,68 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+
+    <!-- Background circle -->
+    <path
+        android:fillColor="?attr/colorSurfaceVariant"
+        android:pathData="M60,60 m-52,0 a52,52 0 1,0 104,0 a52,52 0 1,0 -104,0" />
+
+    <!-- Back card, slightly rotated via group -->
+    <group
+        android:pivotX="60"
+        android:pivotY="62"
+        android:rotation="-7">
+        <path
+            android:fillColor="?attr/colorSurface"
+            android:strokeColor="?attr/colorOutlineVariant"
+            android:strokeWidth="1.2"
+            android:pathData="M36,34 L82,34 Q86,34 86,38 L86,89 Q86,93 82,93 L36,93 Q32,93 32,89 L32,38 Q32,34 36,34 Z" />
+        <path
+            android:strokeColor="?attr/colorOutlineVariant"
+            android:strokeWidth="2.5"
+            android:strokeLineCap="round"
+            android:fillColor="@android:color/transparent"
+            android:pathData="M39,60 L79,60" />
+        <path
+            android:strokeColor="?attr/colorOutlineVariant"
+            android:strokeWidth="2.5"
+            android:strokeLineCap="round"
+            android:fillColor="@android:color/transparent"
+            android:pathData="M39,70 L65,70" />
+    </group>
+
+    <!-- Front card -->
+    <path
+        android:fillColor="?attr/colorSurface"
+        android:strokeColor="?attr/colorOutlineVariant"
+        android:strokeWidth="1.5"
+        android:pathData="M40,28 L86,28 Q90,28 90,32 L90,92 Q90,96 86,96 L40,96 Q36,96 36,92 L36,32 Q36,28 40,28 Z" />
+
+    <!-- Bookmark ribbon -->
+    <path
+        android:fillColor="?attr/colorPrimary"
+        android:pathData="M52,28 L74,28 L74,56 L63,49 L52,56 Z" />
+
+    <!-- Notch on ribbon tip -->
+    <path
+        android:fillColor="?attr/colorPrimary"
+        android:pathData="M52,56 L63,49 L74,56 L74,58 L63,51 L52,58 Z"
+        android:alpha="0.3" />
+
+    <!-- Content skeleton lines -->
+    <path
+        android:strokeColor="?attr/colorOutlineVariant"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M43,70 L83,70" />
+    <path
+        android:strokeColor="?attr/colorOutlineVariant"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M43,80 L70,80" />
+
+</vector>

@@ -16,16 +16,16 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val LightColorScheme = lightColorScheme(
-    primary                 = Primary,
+    primary                 = BrandConfig.primary,
     onPrimary               = OnPrimary,
     primaryContainer        = PrimaryContainer,
     onPrimaryContainer      = OnPrimaryContainer,
     inversePrimary          = InversePrimary,
-    secondary               = Secondary,
+    secondary               = BrandConfig.secondary,
     onSecondary             = OnSecondary,
     secondaryContainer      = SecondaryContainer,
     onSecondaryContainer    = OnSecondaryContainer,
-    tertiary                = Tertiary,
+    tertiary                = BrandConfig.tertiary,
     onTertiary              = OnTertiary,
     tertiaryContainer       = TertiaryContainer,
     onTertiaryContainer     = OnTertiaryContainer,
@@ -51,12 +51,12 @@ private val LightColorScheme = lightColorScheme(
 )
 
 private val DarkColorScheme = darkColorScheme(
-    primary                 = PrimaryDark,
+    primary                 = BrandConfig.primaryDark,
     onPrimary               = OnPrimaryDark,
     primaryContainer        = PrimaryContainerDark,
     onPrimaryContainer      = OnPrimaryContainerDark,
-    inversePrimary          = Primary,
-    secondary               = SecondaryDark,
+    inversePrimary          = BrandConfig.primary,
+    secondary               = BrandConfig.secondaryDark,
     onSecondary             = OnSecondaryDark,
     secondaryContainer      = SecondaryContainerDark,
     onSecondaryContainer    = OnSecondaryContainerDark,

@@ -1,5 +1,6 @@
 package com.taqisystems.bus.android.ui.screens
 
+import com.taqisystems.bus.android.BuildConfig
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -96,7 +97,7 @@ fun NotificationsScreen(navController: NavController) {
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "You'll see updates from Kelantan Bus here.",
+                        "You'll see updates from ${BuildConfig.APP_NAME} here.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     )
@@ -201,7 +202,7 @@ private fun NotificationRow(notification: InboxNotification, onClick: () -> Unit
             ) {
                 androidx.compose.foundation.Image(
                     painter = painterResource(R.drawable.logo),
-                    contentDescription = "Kelantan Bus",
+                    contentDescription = BuildConfig.APP_NAME,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .size(40.dp)

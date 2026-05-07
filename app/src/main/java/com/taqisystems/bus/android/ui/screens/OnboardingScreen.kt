@@ -1,5 +1,6 @@
 package com.taqisystems.bus.android.ui.screens
 
+import com.taqisystems.bus.android.BuildConfig
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
@@ -64,7 +65,7 @@ private val pages = listOf(
     OnboardingPage(
         icon = Icons.Default.DirectionsBus,
         navLabel = "",
-        title = "Welcome to Kelantan Bus",
+        title = "Welcome to ${BuildConfig.APP_NAME}",
         body = "Your real-time transit companion for Malaysia. Get live arrivals, plan trips, and explore the network.",
     ),
     OnboardingPage(
@@ -230,7 +231,7 @@ private fun OnboardingPage(page: OnboardingPage) {
             ) {
                 Image(
                     painter = painterResource(R.drawable.logo),
-                    contentDescription = "Kelantan Bus logo",
+                    contentDescription = "${BuildConfig.APP_NAME} logo",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.size(140.dp),
                 )
