@@ -293,3 +293,20 @@ including:
 - Map marker drawing specifications
 - Known SDK quirks and workarounds
 - Unit test reference
+
+---
+
+## License
+
+Copyright 2026 Taqi Systems
+
+Licensed under the [Apache License, Version 2.0](LICENSE). You may not use this
+project except in compliance with the License. A copy of the License is included
+in the [LICENSE](LICENSE) file.
+
+All source files carry the following SPDX identifier:
+
+```
+SPDX-FileCopyrightText: 2026 Taqi Systems
+SPDX-License-Identifier: Apache-2.0
+```

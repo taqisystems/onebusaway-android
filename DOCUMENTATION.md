@@ -1316,3 +1316,27 @@ class RegionsRepository(
 ```
 
 All production call sites pass no argument and therefore use `REGIONS_URL` as before. Tests pass the `MockWebServer` base URL.
+
+---
+
+## 11. License
+
+**SPDX-License-Identifier:** `Apache-2.0`
+
+Copyright 2026 Taqi Systems
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+any file in this project except in compliance with the License. You may obtain a
+copy of the License at:
+
+```
+http://www.apache.org/licenses/LICENSE-2.0
+```
+
+The full license text is in the [`LICENSE`](../LICENSE) file at the repository
+root. Every Kotlin source file carries an SPDX header:
+
+```kotlin
+// SPDX-FileCopyrightText: 2026 Taqi Systems
+// SPDX-License-Identifier: Apache-2.0
+```

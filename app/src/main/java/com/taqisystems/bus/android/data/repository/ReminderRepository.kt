@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Taqi Systems
+// SPDX-License-Identifier: Apache-2.0
+
 package com.taqisystems.bus.android.data.repository
 
 import com.onesignal.OneSignal
