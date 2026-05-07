@@ -133,21 +133,21 @@ source files need to be touched to produce a new brand.
 | `APP_SECONDARY_COLOR` | `#E53935` | Accent chips, live-status badges, active tab |
 | `APP_TERTIARY_COLOR` | `#37474F` | Supporting text, icon tints |
 
-**Service URLs**
+**Service URLs** *(required — Gradle sync fails if missing)*
 
-| Key | Default | Effect |
-|---|---|---|
-| `OBA_BASE_URL` | `https://api.kelantanbus.com` | Base URL for all OneBusAway API calls |
-| `GEOCODING_BASE_URL` | `https://geocode.kelantanbus.com/v1` | Base URL for the Photon geocoding API |
-| `REGIONS_URL` | `https://cdn.unrealasia.net/onebusaway/regions.json` | OBA regions manifest URL |
+| Key | Effect |
+|---|---|
+| `OBA_BASE_URL` | Base URL for all OneBusAway API calls |
+| `GEOCODING_BASE_URL` | Base URL for the Photon geocoding API |
+| `REGIONS_URL` | OBA regions manifest URL |
 
-**Social / support URLs**
+**Social / support URLs** *(required — Gradle sync fails if missing)*
 
-| Key | Default | Effect |
-|---|---|---|
-| `FACEBOOK_PAGE_URL` | `https://www.facebook.com/kelantanbus` | Facebook link in the Feedback screen |
-| `WHATSAPP_PHONE` | `60109141767` | WhatsApp number (E.164 without `+`) in the Feedback screen |
-| `STATUS_PAGE_URL` | `https://status.kelantanbus.com` | Service-status link in the More screen |
+| Key | Effect |
+|---|---|
+| `FACEBOOK_PAGE_URL` | Facebook link in the Feedback screen |
+| `WHATSAPP_PHONE` | WhatsApp number (E.164 without `+`) in the Feedback screen |
+| `STATUS_PAGE_URL` | Service-status link in the More screen |
 
 ### What you override with flavor resource files
 

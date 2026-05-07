@@ -56,17 +56,23 @@ android {
         buildConfigField("String", "BRAND_TERTIARY",  "\"$brandTertiary\"")
 
         // ── Service URLs ────────────────────────────────────────────────────
-        val obaBaseUrl       = localProps.getProperty("OBA_BASE_URL")       ?: "https://api.kelantanbus.com"
-        val geocodingBaseUrl = localProps.getProperty("GEOCODING_BASE_URL") ?: "https://geocode.kelantanbus.com/v1"
-        val regionsUrl       = localProps.getProperty("REGIONS_URL")        ?: "https://cdn.unrealasia.net/onebusaway/regions.json"
+        val obaBaseUrl       = localProps.getProperty("OBA_BASE_URL")
+            ?: error("OBA_BASE_URL not set in local.properties")
+        val geocodingBaseUrl = localProps.getProperty("GEOCODING_BASE_URL")
+            ?: error("GEOCODING_BASE_URL not set in local.properties")
+        val regionsUrl       = localProps.getProperty("REGIONS_URL")
+            ?: error("REGIONS_URL not set in local.properties")
         buildConfigField("String", "OBA_BASE_URL",       "\"$obaBaseUrl\"")
         buildConfigField("String", "GEOCODING_BASE_URL", "\"$geocodingBaseUrl\"")
         buildConfigField("String", "REGIONS_URL",        "\"$regionsUrl\"")
 
         // ── Social / support URLs ───────────────────────────────────────────
-        val facebookPageUrl = localProps.getProperty("FACEBOOK_PAGE_URL") ?: "https://www.facebook.com/kelantanbus"
-        val whatsappPhone   = localProps.getProperty("WHATSAPP_PHONE")    ?: "60109141767"
-        val statusPageUrl   = localProps.getProperty("STATUS_PAGE_URL")   ?: "https://status.kelantanbus.com"
+        val facebookPageUrl = localProps.getProperty("FACEBOOK_PAGE_URL")
+            ?: error("FACEBOOK_PAGE_URL not set in local.properties")
+        val whatsappPhone   = localProps.getProperty("WHATSAPP_PHONE")
+            ?: error("WHATSAPP_PHONE not set in local.properties")
+        val statusPageUrl   = localProps.getProperty("STATUS_PAGE_URL")
+            ?: error("STATUS_PAGE_URL not set in local.properties")
         buildConfigField("String", "FACEBOOK_PAGE_URL", "\"$facebookPageUrl\"")
         buildConfigField("String", "WHATSAPP_PHONE",    "\"$whatsappPhone\"")
         buildConfigField("String", "STATUS_PAGE_URL",   "\"$statusPageUrl\"")

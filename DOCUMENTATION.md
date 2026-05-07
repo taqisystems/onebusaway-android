@@ -780,12 +780,12 @@ APP_PRIMARY_COLOR=#C62828
 APP_SECONDARY_COLOR=#E53935
 APP_TERTIARY_COLOR=#37474F
 
-# ── Service URLs (see §7.2) ───────────────────────────────────────────────────
+# ── Service URLs (required — see §7.2) ───────────────────────────────────────────────────
 OBA_BASE_URL=https://api.kelantanbus.com
 GEOCODING_BASE_URL=https://geocode.kelantanbus.com/v1
 REGIONS_URL=https://cdn.unrealasia.net/onebusaway/regions.json
 
-# ── Social / support URLs (see §7.2) ──────────────────────────────────────────
+# ── Social / support URLs (required — see §7.2) ──────────────────────────────────────────
 FACEBOOK_PAGE_URL=https://www.facebook.com/kelantanbus
 WHATSAPP_PHONE=60109141767
 STATUS_PAGE_URL=https://status.kelantanbus.com
@@ -848,21 +848,24 @@ buildConfigField("String", "BRAND_SECONDARY",  "\"$brandSecondary\"")
 buildConfigField("String", "BRAND_TERTIARY",   "\"$brandTertiary\"")
 ```
 
-#### What can be overridden in `local.properties` (service URLs)
+#### Required `local.properties` entries — service URLs
 
-| Key | Default | Controls |
-|---|---|---|
-| `OBA_BASE_URL` | `https://api.kelantanbus.com` | Base URL for all OneBusAway API calls (`ObaRepository`) |
-| `GEOCODING_BASE_URL` | `https://geocode.kelantanbus.com/v1` | Base URL for the Photon geocoding API (`GeocodingRepository`) |
-| `REGIONS_URL` | `https://cdn.unrealasia.net/onebusaway/regions.json` | URL for the OBA regions manifest (`RegionsRepository`) |
+All six URL entries are **required**. Gradle sync fails with an explicit error if
+any are missing:
 
-#### What can be overridden in `local.properties` (social / support URLs)
+| Key | Controls |
+|---|---|
+| `OBA_BASE_URL` | Base URL for all OneBusAway API calls (`ObaRepository`) |
+| `GEOCODING_BASE_URL` | Base URL for the Photon geocoding API (`GeocodingRepository`) |
+| `REGIONS_URL` | URL for the OBA regions manifest (`RegionsRepository`) |
 
-| Key | Default | Controls |
-|---|---|---|
-| `FACEBOOK_PAGE_URL` | `https://www.facebook.com/kelantanbus` | Facebook link in the Feedback screen |
-| `WHATSAPP_PHONE` | `60109141767` | WhatsApp number (E.164 without `+`) in the Feedback screen |
-| `STATUS_PAGE_URL` | `https://status.kelantanbus.com` | Service-status link in the More screen |
+#### Required `local.properties` entries — social / support URLs
+
+| Key | Controls |
+|---|---|
+| `FACEBOOK_PAGE_URL` | Facebook link in the Feedback screen |
+| `WHATSAPP_PHONE` | WhatsApp number (E.164 without `+`) in the Feedback screen |
+| `STATUS_PAGE_URL` | Service-status link in the More screen |
 
 All six URL values are compiled into `BuildConfig` fields at build time:
 
