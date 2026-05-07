@@ -22,7 +22,12 @@ android {
         versionName = "3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "ONESIGNAL_APP_ID", "\"ONESIGNAL_APP_ID_REDACTED\"")
+        val oneSignalAppId = localProps.getProperty("ONESIGNAL_APP_ID")
+            ?: error("ONESIGNAL_APP_ID not set in local.properties")
+        buildConfigField("String", "ONESIGNAL_APP_ID", "\"$oneSignalAppId\"")
+        val googleMapsApiKey = localProps.getProperty("GOOGLE_MAPS_API_KEY")
+            ?: error("GOOGLE_MAPS_API_KEY not set in local.properties")
+        manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = googleMapsApiKey
     }
 
     signingConfigs {

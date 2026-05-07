@@ -36,7 +36,7 @@
 
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="GOOGLE_MAPS_API_KEY_REDACTED" />
+            android:value="${GOOGLE_MAPS_API_KEY}" />
 
         <!-- OneSignal SDK 5.x: icon resolved by drawable name "ic_stat_onesignal_default" (no manifest key) -->
         <!-- OneSignal SDK 5.x: accent color key is .DEFAULT suffix -->
