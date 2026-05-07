@@ -4,7 +4,8 @@ A real-time transit app for the Kelantan public bus network — native Android, 
 
 > **Package:** `com.taqisystems.bus.android`  
 > **Min SDK:** 24 (Android 7.0) · **Target SDK:** 36  
-> **Build status:** ✅ `assembleKelantanDebug` passing
+> **Build status:**
+[![CI](https://github.com/muhammadn/onebusaway-android/actions/workflows/ci.yml/badge.svg)](https://github.com/muhammadn/onebusaway-android/actions/workflows/ci.yml)
 
 ---
 
