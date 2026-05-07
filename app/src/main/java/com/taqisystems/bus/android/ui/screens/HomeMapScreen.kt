@@ -51,6 +51,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
@@ -2106,18 +2107,24 @@ fun StopBottomSheet(
                         enableDismissFromStartToEnd = sidecarEnabled,
                         enableDismissFromEndToStart = false,
                         backgroundContent = {
-                            val revealed = swipeState.targetValue == SwipeToDismissBoxValue.StartToEnd
-                            val bgAlpha by animateFloatAsState(
-                                targetValue = if (revealed) 1f else 0f,
-                                animationSpec = tween(200),
-                                label = "swipeBgAlpha",
-                            )
+                            // progress = fraction between currentValue and targetValue anchors.
+                            // When both are Settled (at rest) Compose returns 1f, so we must
+                            // guard with the state pair rather than using progress alone.
+                            val bgAlpha = when {
+                                swipeState.currentValue == SwipeToDismissBoxValue.Settled &&
+                                swipeState.targetValue == SwipeToDismissBoxValue.StartToEnd ->
+                                    swipeState.progress          // 0→1 while dragging right
+                                swipeState.currentValue == SwipeToDismissBoxValue.StartToEnd ->
+                                    1f - swipeState.progress     // 1→0 while snapping back
+                                else -> 0f                       // fully settled — invisible
+                            }
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(horizontal = 16.dp, vertical = 4.dp)
                                     .clip(RoundedCornerShape(16.dp))
                                     .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = bgAlpha))
+                                    .alpha(bgAlpha)
                                     .padding(start = 20.dp),
                                 contentAlignment = Alignment.CenterStart,
                             ) {

@@ -204,7 +204,7 @@
     <string name="status_scheduled">Dijadualkan</string>
     <string name="status_already_departed">Sudah berlepas</string>
     <string name="status_now">SKRG</string>
-    <string name="arrival_until"> hingga %s</string>
+    <string name="arrival_until">\u0020hingga %s</string>
     <string name="arrival_min_label">MIN</string>
     <string name="arrival_not_realtime">bukan masa nyata</string>
     <!-- %d = minutes -->

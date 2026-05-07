@@ -207,7 +207,7 @@
     <string name="status_scheduled">Scheduled</string>
     <string name="status_already_departed">Already departed</string>
     <string name="status_now">NOW</string>
-    <string name="arrival_until"> until %s</string>
+    <string name="arrival_until">\u0020until %s</string>
     <string name="arrival_min_label">MIN</string>
     <string name="arrival_not_realtime">not real-time</string>
     <!-- %d = minutes -->
