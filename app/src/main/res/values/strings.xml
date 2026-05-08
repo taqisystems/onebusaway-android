@@ -49,7 +49,7 @@
     <string name="about_developer_name">Taqi Systems</string>
     <string name="about_developer_location">Kota Bharu, Kelantan, Malaysia</string>
     <!-- %d = year -->
-    <string name="about_copyright">© %d Taqi Systems. All rights reserved. This application and its source code are proprietary and confidential. Copying, distribution, or modification without authorisation is strictly prohibited.</string>
+    <string name="about_copyright">© %d Taqi Systems</string>
     <string name="about_section_libraries">Open-Source Libraries</string>
     <string name="about_libraries_intro">Kelantan Bus is built using the following open-source libraries:</string>
 

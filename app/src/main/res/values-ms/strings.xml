@@ -50,7 +50,7 @@
     <string name="about_developer_name">Taqi Systems</string>
     <string name="about_developer_location">Kota Bharu, Kelantan, Malaysia</string>
     <!-- %d = year -->
-    <string name="about_copyright">© %d Taqi Systems. Hak cipta terpelihara. Aplikasi ini dan kod sumbernya adalah proprietari dan sulit. Penyalinan, pengedaran, atau pengubahsuaian tanpa kebenaran adalah dilarang sama sekali.</string>
+    <string name="about_copyright">© %d Taqi Systems</string>
     <string name="about_section_libraries">Perpustakaan Sumber Terbuka</string>
     <string name="about_libraries_intro">Bas Kelantan dibina menggunakan perpustakaan sumber terbuka berikut:</string>
 
