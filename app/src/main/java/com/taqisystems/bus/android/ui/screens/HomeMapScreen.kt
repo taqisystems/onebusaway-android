@@ -176,12 +176,14 @@ fun HomeMapScreen(
     val selectedStop = uiState.selectedStop
     val sheetState = rememberStandardBottomSheetState(
         initialValue = SheetValue.PartiallyExpanded,
-        // Allow the sheet to be dragged freely in both directions.
-        // BottomSheetScaffold already routes list scroll events to the LazyColumn,
-        // not the sheet drag, so accidental collapse while scrolling is not an issue.
-        confirmValueChange = { true },
+        // Block Hidden so dragging the sheet down past peek never clears the stop;
+        // the sheet instead snaps back to PartiallyExpanded (peek level).
+        confirmValueChange = { it != SheetValue.Hidden },
     )
     val scaffoldState = rememberBottomSheetScaffoldState(bottomSheetState = sheetState)
+    // C — pill state: when true, peekHeight shrinks to pill (52dp) so the sheet
+    // is nearly hidden but the selected stop is preserved.
+    var sheetMinimised by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     // One-shot: fly camera to a stop fetched via deep-link (real coords come async)
@@ -234,9 +236,10 @@ fun HomeMapScreen(
         }
     }
 
-    // Partial-expand to 1-row peek when a stop is tapped; collapse when cleared.
+    // Partial-expand to peek when a stop is tapped; collapse back when cleared.
     // Auto-pan: centre the map on the selected stop so it appears above the peek sheet.
     LaunchedEffect(selectedStop?.id) {
+        sheetMinimised = false  // always reset pill mode on stop change
         if (selectedStop == null) {
             scaffoldState.bottomSheetState.partialExpand()
         } else {
@@ -246,6 +249,15 @@ fun HomeMapScreen(
                     LatLng(selectedStop.lat, selectedStop.lon),
                 )
             )
+        }
+    }
+
+    // Clear minimised state the moment the user drags the sheet upward — this
+    // restores peekHeight to 192dp so releasing mid-drag lands at the header peek
+    // rather than snapping back to the tiny pill position.
+    LaunchedEffect(scaffoldState.bottomSheetState.targetValue) {
+        if (sheetMinimised && scaffoldState.bottomSheetState.targetValue == SheetValue.Expanded) {
+            sheetMinimised = false
         }
     }
 
@@ -352,18 +364,8 @@ fun HomeMapScreen(
         )
     }
 
-    // peekHeight breakdown when a stop is selected:
-    //   drag handle   : ~16dp
-    //   stop header   : ~80dp  (name + code + route count + padding)
-    //   arrivals hdr  : ~40dp
-    //   divider       :   1dp
-    //   one ArrivalRow: ~92dp  (min-height; a row with via + sched line can reach ~160dp)
-    //   buffer        : ~70dp
-    //   total (normal): 300dp + nav bar inset
-    //   total (pinned): 520dp + nav bar inset  (generous for pinned row with secondary/via line)
-    val navBarInset      = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val handleBarHeight  = 52.dp
-    val headerRowHeight  = 80.dp  // 12dp pad-top + headlineMedium + sub-labels + 12dp pad-bottom
+    // peekHeight: handle(52) + header row(~112) + arrivals label(~28) — hero card is just below fold
+    val handleBarHeight = 52.dp
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0),
@@ -381,10 +383,12 @@ fun HomeMapScreen(
             )
         },
     ) { innerPadding ->
+        // bottomPadding = system nav bar + BottomNavBar height combined
+        val bottomPadding = innerPadding.calculateBottomPadding()
         val peekHeight = when {
-            selectedStop == null                -> handleBarHeight
-            uiState.pinnedTripVehicleId != null -> navBarInset + 330.dp
-            else                               -> navBarInset + 300.dp
+            selectedStop == null -> bottomPadding + handleBarHeight
+            sheetMinimised       -> bottomPadding + handleBarHeight + 40.dp  // pill + compact info strip
+            else                 -> bottomPadding + 233.dp           // handle + header row + arrivals label (hero below fold)
         }
         Box(Modifier.fillMaxSize()) {
         BottomSheetScaffold(
@@ -400,9 +404,22 @@ fun HomeMapScreen(
                         dragHint.animateTo(0f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow))
                     }
                 }
+                // C: tapping the drag pill when minimised re-expands to hero peek
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        ) {
+                            if (sheetMinimised) {
+                                sheetMinimised = false
+                                scope.launch {
+                                    kotlinx.coroutines.delay(50)
+                                    scaffoldState.bottomSheetState.partialExpand()
+                                }
+                            }
+                        }
                         .padding(top = 8.dp, bottom = 4.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -433,6 +450,32 @@ fun HomeMapScreen(
                         focusedVehicleId = uiState.focusedVehicle?.vehicleId,
                         pinnedTripVehicleId = uiState.pinnedTripVehicleId,
                         extraBottomPadding = innerPadding.calculateBottomPadding(),
+                        // C: X only in full-expanded state
+                        isExpanded = scaffoldState.bottomSheetState.currentValue == SheetValue.Expanded,
+                        isMinimised = sheetMinimised,
+                        // C: minimise to pill (stop kept, peekHeight shrinks to handle only)
+                        onMinimise = {
+                            sheetMinimised = true
+                            scope.launch {
+                                kotlinx.coroutines.delay(50)
+                                scaffoldState.bottomSheetState.partialExpand()
+                            }
+                        },
+                        // D: header row tap — if minimised, restore to hero peek; otherwise toggle expanded ↔ peek
+                        onCollapseOrExpand = {
+                            scope.launch {
+                                if (sheetMinimised) {
+                                    sheetMinimised = false
+                                    // Small delay lets recomposition update peekHeight before snap
+                                    kotlinx.coroutines.delay(50)
+                                    scaffoldState.bottomSheetState.partialExpand()
+                                } else if (scaffoldState.bottomSheetState.currentValue == SheetValue.Expanded) {
+                                    scaffoldState.bottomSheetState.partialExpand()
+                                } else {
+                                    scaffoldState.bottomSheetState.expand()
+                                }
+                            }
+                        },
                         onToggleSave = {
                             val wasSaved = savedStops.any { it.id == sheetStop.id }
                             viewModel.toggleSaved(sheetStop)
@@ -485,15 +528,24 @@ fun HomeMapScreen(
 
                     )
                 } else {
-                    Box(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 24.dp),
-                        contentAlignment = Alignment.CenterStart,
+                            .height(36.dp)
+                            .padding(horizontal = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
                     ) {
+                        Icon(
+                            imageVector = Icons.Default.TouchApp,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.width(6.dp))
                         Text(
                             stringResource(R.string.map_tap_to_see_arrivals),
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -1620,6 +1672,14 @@ fun StopBottomSheet(
     extraBottomPadding: Dp = 0.dp,
     sidecarEnabled: Boolean = false,
     activeReminders: List<ActiveReminder> = emptyList(),
+    // C: true when sheet is fully expanded (shows full arrivals list)
+    isExpanded: Boolean = false,
+    // C: true when sheet is in pill/compact mode
+    isMinimised: Boolean = false,
+    // C: called when user taps the minimise (↓) button at peek — collapses to pill
+    onMinimise: () -> Unit = {},
+    // D: called by tapping the stop-name area — toggles peek ↔ full-expanded
+    onCollapseOrExpand: () -> Unit = {},
     onToggleSave: () -> Unit = {},
     onViewDetails: () -> Unit,
     onDismiss: () -> Unit,
@@ -1635,6 +1695,148 @@ fun StopBottomSheet(
             .navigationBarsPadding()
             .padding(bottom = extraBottomPadding),
     ) {
+        // ── Compact pill strip (minimised state) ───────────────────────────
+        if (isMinimised) {
+            var nowMsPill by remember { mutableLongStateOf(System.currentTimeMillis()) }
+            LaunchedEffect(Unit) { while (true) { delay(1_000); nowMsPill = System.currentTimeMillis() } }
+            // Mirror hero selection: pinned trip floats to top, then sorted by effective time,
+            // then pick the first trip that hasn't departed yet — same as the hero card.
+            val nextBusPill = remember(arrivals, pinnedTripVehicleId) {
+                arrivals
+                    .sortedWith(
+                        compareBy(
+                            { if (pinnedTripVehicleId != null && it.vehicleId == pinnedTripVehicleId) 0 else 1 },
+                            { if (it.predictedArrivalTime > 0) it.predictedArrivalTime else it.scheduledArrivalTime },
+                        )
+                    )
+                    .firstOrNull { it.liveMinutesUntilArrival() >= 0 }
+            }
+            val pillEffectiveMs = nextBusPill?.let { if (it.predictedArrivalTime > 0) it.predictedArrivalTime else it.scheduledArrivalTime } ?: 0L
+            val pillMins = if (pillEffectiveMs > 0) ((pillEffectiveMs - nowMsPill) / 60_000).toInt() else null
+            val pillStatusColor = when (nextBusPill?.status) {
+                ArrivalStatus.ON_TIME  -> StatusOnTime
+                ArrivalStatus.DELAYED  -> StatusDelayed
+                ArrivalStatus.EARLY    -> StatusEarly
+                else                   -> StatusScheduled
+            }
+            val pillDeviationText = when {
+                nextBusPill == null -> null
+                nextBusPill.predicted && nextBusPill.status == ArrivalStatus.DELAYED && nextBusPill.deviationMinutes > 0 ->
+                    stringResource(R.string.arrival_min_late, nextBusPill.deviationMinutes)
+                nextBusPill.predicted && nextBusPill.status == ArrivalStatus.EARLY && nextBusPill.deviationMinutes != 0 ->
+                    stringResource(R.string.arrival_min_early, kotlin.math.abs(nextBusPill.deviationMinutes))
+                nextBusPill.predicted && nextBusPill.status == ArrivalStatus.ON_TIME ->
+                    stringResource(R.string.arrival_on_time_note)
+                !nextBusPill.predicted ->
+                    stringResource(R.string.arrival_not_realtime)
+                else -> null
+            }
+            // Pulsating live dot — mirrors hero card animation
+            val pillDotScale by rememberInfiniteTransition(label = "pillDot").animateFloat(
+                initialValue = 0.6f, targetValue = 1f,
+                animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+                label = "pillDotScale",
+            )
+            val pillDotAlpha by rememberInfiniteTransition(label = "pillDotA").animateFloat(
+                initialValue = 0.35f, targetValue = 1f,
+                animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+                label = "pillDotAlpha",
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp)
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        onClick = onCollapseOrExpand,
+                    )
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (nextBusPill != null) {
+                    val isPinnedPill = pinnedTripVehicleId != null && nextBusPill.vehicleId == pinnedTripVehicleId
+                    if (isPinnedPill) {
+                        Icon(Icons.Default.PushPin, contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(12.dp))
+                    }
+                    // Route badge
+                    if (nextBusPill.routeShortName.isNotBlank()) {
+                        Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                            Text(
+                                nextBusPill.routeShortName,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                    // Headsign — takes remaining space, truncated
+                    Text(
+                        nextBusPill.tripHeadsign.ifBlank { stop.name },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    // Live pulsating dot
+                    if (nextBusPill.predicted) {
+                        Box(
+                            Modifier
+                                .size(8.dp)
+                                .scale(pillDotScale)
+                                .alpha(pillDotAlpha)
+                                .clip(RoundedCornerShape(50))
+                                .background(pillStatusColor)
+                        )
+                    }
+                    // Countdown
+                    Text(
+                        when {
+                            pillMins == null -> "—"
+                            pillMins <= 0    -> stringResource(R.string.status_now)
+                            pillMins < 60    -> stringResource(R.string.itinerary_min, pillMins)
+                            else             -> "${pillMins / 60}h ${pillMins % 60}m"
+                        },
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    // Deviation / status label
+                    if (pillDeviationText != null) {
+                        Text(
+                            pillDeviationText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = pillStatusColor,
+                            maxLines = 1,
+                        )
+                    }
+                } else if (loading) {
+                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                } else {
+                    Text(
+                        stop.name,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                // Expand chevron
+                Icon(
+                    Icons.Default.KeyboardArrowUp,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            return@Column
+        }
+
         // ── Header ─────────────────────────────────────────────────────────
         val headerAgencyLabel = remember(arrivals) {
             arrivals.map { it.agencyName }.filter { it.isNotBlank() }.distinct()
@@ -1690,6 +1892,24 @@ fun StopBottomSheet(
                     tint = if (isSaved) MaterialTheme.colorScheme.primary
                            else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            // C: minimise to pill when at peek; collapse to peek when fully expanded
+            if (isExpanded) {
+                IconButton(onClick = onCollapseOrExpand) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = stringResource(R.string.action_close),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                IconButton(onClick = onMinimise) {
+                    Icon(
+                        Icons.Default.KeyboardArrowDown,
+                        contentDescription = stringResource(R.string.action_close),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
 
@@ -1990,15 +2210,82 @@ fun StopBottomSheet(
                         animationSpec = tween(300),
                         label = "heroStatus",
                     )
-                    val heroMins = nextBus.liveMinutesUntilArrival()
+                    // Fix #1: derive heroMins from nowMs so the countdown ticks every second
+                    val heroEffectiveMs = if (nextBus.predictedArrivalTime > 0) nextBus.predictedArrivalTime else nextBus.scheduledArrivalTime
+                    val heroMins = ((heroEffectiveMs - nowMs) / 60_000).toInt()
+
+                    // Fix #6: urgency pulse on the whole card when ≤ 2 min away
+                    val urgencyActive = heroMins in 0..2
+                    val heroUrgencyScale by if (urgencyActive) {
+                        rememberInfiniteTransition(label = "heroUrgency").animateFloat(
+                            initialValue = 1.00f, targetValue = 1.03f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(500, easing = FastOutSlowInEasing),
+                                repeatMode = RepeatMode.Reverse,
+                            ),
+                            label = "heroUrgencyScale",
+                        )
+                    } else {
+                        remember { mutableStateOf(1f) }
+                    }
+
+                    // Pulsing live-dot animation for hero row
+                    val heroDotScale by if (nextBus.predicted) {
+                        rememberInfiniteTransition(label = "heroDot").animateFloat(
+                            initialValue = 0.6f, targetValue = 1.0f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(900, easing = FastOutSlowInEasing),
+                                repeatMode = RepeatMode.Reverse,
+                            ),
+                            label = "heroDotScale",
+                        )
+                    } else {
+                        remember { mutableStateOf(1.0f) }
+                    }
+                    val heroDotAlpha by if (nextBus.predicted) {
+                        rememberInfiniteTransition(label = "heroDotAlpha").animateFloat(
+                            initialValue = 0.35f, targetValue = 1.0f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(900, easing = FastOutSlowInEasing),
+                                repeatMode = RepeatMode.Reverse,
+                            ),
+                            label = "heroDotAlphaVal",
+                        )
+                    } else {
+                        remember { mutableStateOf(1.0f) }
+                    }
+
+                    // Fix #2: deviation / status label
+                    val heroDeviationText = when {
+                        nextBus.predicted && nextBus.status == ArrivalStatus.DELAYED && nextBus.deviationMinutes > 0 ->
+                            stringResource(R.string.arrival_min_late, nextBus.deviationMinutes)
+                        nextBus.predicted && nextBus.status == ArrivalStatus.EARLY && nextBus.deviationMinutes != 0 ->
+                            stringResource(R.string.arrival_min_early, kotlin.math.abs(nextBus.deviationMinutes))
+                        nextBus.predicted && nextBus.status == ArrivalStatus.ON_TIME ->
+                            stringResource(R.string.arrival_on_time_note)
+                        !nextBus.predicted ->
+                            stringResource(R.string.arrival_not_realtime)
+                        else -> null
+                    }
+
+                    // Fix #3: scheduled clock time
+                    val heroSchedFmt = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
+                    val heroSchedStr = if (nextBus.scheduledArrivalTime > 0)
+                        heroSchedFmt.format(java.util.Date(nextBus.scheduledArrivalTime))
+                    else null
+
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .scale(heroUrgencyScale)   // Fix #6
                             .clickable { onArrivalFocus(nextBus) },
                         shape = RoundedCornerShape(16.dp),
-                        color = heroStatusColor.copy(alpha = 0.08f),
-                        border = BorderStroke(1.5.dp, heroStatusColor.copy(alpha = 0.4f)),
+                        color = heroStatusColor.copy(alpha = if (urgencyActive) 0.13f else 0.08f),
+                        border = BorderStroke(
+                            if (urgencyActive) 2.dp else 1.5.dp,
+                            heroStatusColor.copy(alpha = if (urgencyActive) 0.65f else 0.4f),
+                        ),
                     ) {
                         Row(
                             modifier = Modifier
@@ -2006,6 +2293,7 @@ fun StopBottomSheet(
                                 .padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            // ── Left: label, route, status, sched time ──────────
                             Column(
                                 modifier = Modifier.weight(1f),
                                 verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -2025,22 +2313,52 @@ fun StopBottomSheet(
                                     maxLines = 1,
                                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                 )
+                                // Fix #2: status/deviation chip
+                                if (heroDeviationText != null) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                                .background(heroStatusColor.copy(alpha = 0.7f)),
+                                        )
+                                        Text(
+                                            heroDeviationText,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = heroStatusColor,
+                                        )
+                                    }
+                                }
+                                // Show scheduled time only for timetable-only trips (no live data)
+                                if (!nextBus.predicted && heroSchedStr != null) {
+                                    Text(
+                                        stringResource(R.string.arrival_sched, heroSchedStr),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
                             Spacer(Modifier.width(12.dp))
-                            Row(
-                                verticalAlignment = Alignment.Bottom,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            // ── Right: live dot + countdown + unit ──────────────
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
                             ) {
                                 if (nextBus.predicted) {
                                     Box(
                                         modifier = Modifier
-                                            .padding(bottom = 6.dp)
                                             .size(7.dp)
+                                            .scale(heroDotScale)
                                             .clip(androidx.compose.foundation.shape.CircleShape)
-                                            .background(heroStatusColor),
+                                            .background(heroStatusColor.copy(alpha = heroDotAlpha)),
                                     )
+                                    Spacer(Modifier.height(4.dp))
                                 }
-                                if (heroMins == 0) {
+                                if (heroMins <= 0) {
                                     Text(
                                         stringResource(R.string.status_now),
                                         style = MaterialTheme.typography.headlineMedium,
@@ -2048,22 +2366,22 @@ fun StopBottomSheet(
                                         color = heroStatusColor,
                                     )
                                 } else {
+                                    // Fix #4: show unit label for both < 60 and ≥ 60 cases
                                     Text(
-                                        if (heroMins < 60) "$heroMins" else "${heroMins / 60}h ${heroMins % 60}",
+                                        if (heroMins < 60) "$heroMins" else "${heroMins / 60}h ${heroMins % 60}m",
                                         style = MaterialTheme.typography.headlineMedium,
                                         fontWeight = FontWeight.ExtraBold,
                                         color = heroStatusColor,
                                     )
-                                    if (heroMins < 60) {
-                                        Text(
-                                            stringResource(R.string.label_min),
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = heroStatusColor.copy(alpha = 0.75f),
-                                            modifier = Modifier.padding(bottom = 4.dp),
-                                        )
-                                    }
+                                    Text(
+                                        if (heroMins < 60) stringResource(R.string.label_min) else stringResource(R.string.label_hrs),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = heroStatusColor.copy(alpha = 0.75f),
+                                        letterSpacing = 1.sp,
+                                    )
                                 }
                             }
+
                         }
                     }
                 } else {
