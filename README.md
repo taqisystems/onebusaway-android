@@ -85,12 +85,12 @@ APP_PRIMARY_COLOR=#C62828
 APP_SECONDARY_COLOR=#E53935
 APP_TERTIARY_COLOR=#37474F
 
-# ── Service URLs (optional — defaults shown) ──────────────────────────────────
+# ── Service URLs (required — Gradle sync fails if missing) ────────────────────
 OBA_BASE_URL=https://api.kelantanbus.com
 GEOCODING_BASE_URL=https://geocode.kelantanbus.com/v1
 REGIONS_URL=https://cdn.unrealasia.net/onebusaway/regions.json
 
-# ── Social / support URLs (optional — defaults shown) ─────────────────────────
+# ── Social / support URLs (required — Gradle sync fails if missing) ───────────
 FACEBOOK_PAGE_URL=https://www.facebook.com/kelantanbus
 WHATSAPP_PHONE=60109141767
 STATUS_PAGE_URL=https://status.kelantanbus.com
