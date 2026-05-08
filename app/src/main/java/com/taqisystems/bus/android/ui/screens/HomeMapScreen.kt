@@ -387,7 +387,7 @@ fun HomeMapScreen(
         val bottomPadding = innerPadding.calculateBottomPadding()
         val peekHeight = when {
             selectedStop == null -> bottomPadding + handleBarHeight
-            sheetMinimised       -> bottomPadding + handleBarHeight + 40.dp  // pill + compact info strip
+            sheetMinimised       -> bottomPadding + handleBarHeight + 5.dp  // pill + compact info strip
             else                 -> bottomPadding + 233.dp           // handle + header row + arrivals label (hero below fold)
         }
         Box(Modifier.fillMaxSize()) {
